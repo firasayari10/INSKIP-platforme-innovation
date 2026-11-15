@@ -28,6 +28,19 @@ l'accès doit être restreint, simple et sans mot de passe à gérer.
 7. La sécurité des données ne repose **pas** sur le front : la RLS en base reste la barrière
    réelle (tables à venir).
 
+### Révision du 2026-11-15 : liens par `token_hash`
+
+Les e-mails d'invitation de Supabase n'utilisent pas le flux PKCE : avec le lien par défaut,
+l'invité arrivait sur une page d'erreur. Les modèles d'e-mail (connexion **et** invitation)
+pointent désormais directement vers `/auth/callback?token_hash=…&type=…`, et l'application
+vérifie le jeton elle-même (`verifyOtp`). Effets :
+- les invitations fonctionnent ;
+- le lien de connexion marche dans n'importe quel navigateur (plus de contrainte PKCE) ;
+- un antivirus qui ouvre le lien sans exécuter le JavaScript ne consomme plus le jeton ;
+- seuls les types `email`, `magiclink` et `invite` sont acceptés ; les jetons d'accès dans
+  l'ancre de l'URL (flux implicite) sont refusés.
+Le flux `?code=` (PKCE) reste accepté pour le modèle par défaut.
+
 ## Conséquences
 
 - Session stockée dans le `localStorage` (comportement standard de supabase-js pour une SPA

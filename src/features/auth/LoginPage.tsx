@@ -22,7 +22,8 @@ export function LoginPage() {
 
   const sendLink = async (email: string): Promise<string | null> => {
     const redirect = new URL("/auth/callback", window.location.origin);
-    if (next !== "/") redirect.searchParams.set("next", next);
+    // Toujours un paramètre : le modèle d'e-mail y ajoute « &token_hash=… » (cf. README).
+    redirect.searchParams.set("next", next);
 
     const { error } = await client.auth.signInWithOtp({
       email,
@@ -199,9 +200,7 @@ function CodeStep({
           <h2 className="text-2xl font-semibold tracking-tight">Vérifiez votre boîte mail</h2>
           <p className="text-sm text-muted-foreground text-pretty">
             Si l'adresse <span className="font-medium text-foreground break-all">{email}</span> est autorisée, vous
-            allez recevoir un e-mail. Cliquez sur le lien qu'il contient,{" "}
-            <strong className="font-medium text-foreground">dans ce navigateur</strong>, ou saisissez le code
-            ci-dessous.
+            allez recevoir un e-mail. Cliquez sur le lien qu'il contient ou saisissez le code ci-dessous.
           </p>
         </div>
       </header>

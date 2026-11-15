@@ -67,6 +67,49 @@ export function safeRedirectPath(raw: string | null | undefined): string {
   return path;
 }
 
+// ---------- Retour depuis un lien reçu par e-mail ----------
+
+/** Types de lien acceptés : connexion et invitation. Pas de mot de passe, donc pas de « recovery ». */
+const LINK_TYPES = ["email", "magiclink", "invite"] as const;
+export type LinkType = (typeof LINK_TYPES)[number];
+
+export type CallbackParams =
+  | { kind: "token_hash"; tokenHash: string; type: LinkType }
+  | { kind: "code"; code: string }
+  | { kind: "error"; code: string }
+  | { kind: "invalid" };
+
+const TOKEN_HASH_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
+const PKCE_CODE_PATTERN = /^[A-Za-z0-9-]{16,256}$/;
+
+/**
+ * Interprète l'URL de /auth/callback.
+ * - `token_hash` + `type` : liens des modèles d'e-mail personnalisés (connexion, invitation),
+ *   vérifiés par l'application elle-même — fonctionnent dans n'importe quel navigateur ;
+ * - `code` : flux PKCE du modèle par défaut (même navigateur que la demande) ;
+ * - jetons d'accès dans l'ancre (flux implicite) : refusés, on ne les accepte pas.
+ */
+export function parseCallbackParams(search: string, hash: string): CallbackParams {
+  const query = new URLSearchParams(search);
+  const fragment = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+
+  const errorCode = query.get("error_code") ?? fragment.get("error_code") ?? query.get("error") ?? fragment.get("error");
+  if (errorCode) return { kind: "error", code: errorCode };
+
+  const tokenHash = query.get("token_hash");
+  if (tokenHash !== null) {
+    const type = query.get("type");
+    const isLinkType = (LINK_TYPES as readonly string[]).includes(type ?? "");
+    if (!TOKEN_HASH_PATTERN.test(tokenHash) || !isLinkType) return { kind: "invalid" };
+    return { kind: "token_hash", tokenHash, type: type as LinkType };
+  }
+
+  const code = query.get("code");
+  if (code !== null && PKCE_CODE_PATTERN.test(code)) return { kind: "code", code };
+
+  return { kind: "invalid" };
+}
+
 // ---------- Classification des erreurs ----------
 
 export type AuthErrorCode =

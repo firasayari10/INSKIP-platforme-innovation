@@ -3,6 +3,7 @@ import {
   classifyAuthError,
   DEFAULT_REDIRECT,
   parseEmail,
+  parseCallbackParams,
   parseOtpCode,
   RESEND_COOLDOWN_SECONDS,
   safeRedirectPath,
@@ -133,5 +134,58 @@ describe("secondsUntilResend", () => {
     expect(secondsUntilResend(sentAt, sentAt)).toBe(RESEND_COOLDOWN_SECONDS);
     expect(secondsUntilResend(sentAt, sentAt + 15_000)).toBe(RESEND_COOLDOWN_SECONDS - 15);
     expect(secondsUntilResend(sentAt, sentAt + 120_000)).toBe(0);
+  });
+});
+
+describe("parseCallbackParams", () => {
+  const hash = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678abcdef0123456789";
+
+  test("reconnaît un lien d'invitation (token_hash + type invite)", () => {
+    expect(parseCallbackParams(`?token_hash=${hash}&type=invite`, "")).toEqual({
+      kind: "token_hash",
+      tokenHash: hash,
+      type: "invite",
+    });
+  });
+
+  test("reconnaît un lien de connexion (type email ou magiclink)", () => {
+    expect(parseCallbackParams(`?next=%2F&token_hash=${hash}&type=email`, "")).toMatchObject({ type: "email" });
+    expect(parseCallbackParams(`?token_hash=${hash}&type=magiclink`, "")).toMatchObject({ type: "magiclink" });
+  });
+
+  test("refuse un type non prévu (récupération de mot de passe, changement d'e-mail…)", () => {
+    expect(parseCallbackParams(`?token_hash=${hash}&type=recovery`, "")).toEqual({ kind: "invalid" });
+    expect(parseCallbackParams(`?token_hash=${hash}&type=email_change`, "")).toEqual({ kind: "invalid" });
+  });
+
+  test("refuse un jeton mal formé", () => {
+    expect(parseCallbackParams("?token_hash=<script>&type=invite", "")).toEqual({ kind: "invalid" });
+    expect(parseCallbackParams("?token_hash=&type=invite", "")).toEqual({ kind: "invalid" });
+  });
+
+  test("reconnaît un code PKCE (modèle d'e-mail par défaut)", () => {
+    expect(parseCallbackParams("?code=0f1e2d3c-aaaa-bbbb-cccc-0123456789ab", "")).toEqual({
+      kind: "code",
+      code: "0f1e2d3c-aaaa-bbbb-cccc-0123456789ab",
+    });
+  });
+
+  test("remonte une erreur transmise dans l'URL ou dans l'ancre", () => {
+    expect(parseCallbackParams("?error=access_denied&error_code=otp_expired", "")).toEqual({
+      kind: "error",
+      code: "otp_expired",
+    });
+    expect(parseCallbackParams("", "#error=access_denied&error_code=otp_expired&error_description=x")).toEqual({
+      kind: "error",
+      code: "otp_expired",
+    });
+  });
+
+  test("ignore les jetons d'accès dans l'ancre (flux implicite non accepté)", () => {
+    expect(parseCallbackParams("", "#access_token=abc&refresh_token=def&type=invite")).toEqual({ kind: "invalid" });
+  });
+
+  test("sans paramètre : lien incomplet", () => {
+    expect(parseCallbackParams("", "")).toEqual({ kind: "invalid" });
   });
 });

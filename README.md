@@ -32,24 +32,42 @@ Connexion sans mot de passe, réservée aux personnes invitées (voir
 2. **Authentication → Sign In / Providers** : **désactiver « Allow new users to sign up »**.
    C'est ce réglage qui garantit l'accès sur invitation.
 3. **Authentication → URL Configuration** :
-   - *Site URL* : l'URL de production (ex. `https://<app>.vercel.app`) ;
+   - *Site URL* : l'adresse de l'application, **sans chemin** (`http://localhost:3000` en local,
+     `https://<app>.vercel.app` en production) ;
    - *Redirect URLs* : `http://localhost:3000/auth/callback` et
      `https://<app>.vercel.app/auth/callback` (ajouter aussi le motif des previews Vercel si besoin).
-4. **Authentication → Emails → Magic Link** : le modèle doit contenir à la fois le lien
-   `{{ .ConfirmationURL }}` **et** le code `{{ .Token }}`. Exemple :
+4. **Authentication → Emails → Magic Link** : le lien pointe directement vers l'application
+   (`token_hash`) et l'e-mail contient aussi le code. Ce format fonctionne dans n'importe quel
+   navigateur et résiste aux antivirus de messagerie qui « cliquent » les liens à l'avance.
 
    ```html
    <h2>Connexion à Challenge Innovation</h2>
-   <p><a href="{{ .ConfirmationURL }}">Se connecter</a></p>
+   <p><a href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=email">Se connecter</a></p>
    <p>Ou saisissez ce code : <strong>{{ .Token }}</strong></p>
    <p>Ce lien et ce code sont valables une heure. Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.</p>
    ```
-5. **Authentication → Users → Invite user** : inviter chaque évaluateur.
-6. Copier l'URL du projet et la **clé publishable** (Project Settings → API Keys) dans
+5. **Authentication → Emails → Invite user** :
+
+   ```html
+   <h2>Vous êtes invité sur Challenge Innovation</h2>
+   <p>Vous avez été invité à évaluer les idées d'un challenge d'innovation.</p>
+   <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite">Accepter l'invitation</a></p>
+   <p>Ce lien est valable 24 heures. Ensuite, connectez-vous simplement avec votre adresse e-mail.</p>
+   ```
+6. **Authentication → Users → Invite user** : inviter chaque évaluateur. Aucun mot de passe
+   n'est demandé : les connexions suivantes se font par lien ou par code.
+7. Copier l'URL du projet et la **clé publishable** (Project Settings → API Keys) dans
    `.env.local`. Ne jamais utiliser la clé secrète côté navigateur : l'application refuse
    de démarrer si c'est le cas.
 
+**Envoi des e-mails** : le service d'e-mail intégré de Supabase est limité à quelques envois
+par heure et n'écrit qu'aux membres de l'organisation Supabase. Pour inviter d'autres
+personnes, configurer un SMTP (Authentication → Emails → SMTP Settings).
+
 ## Sécurité
+
+- Projet Supabase hébergé dans l'Union européenne (`eu-north-1`, Stockholm) : les données
+  personnelles des auteurs d'idées restent dans l'UE.
 
 - Aucun secret dans le dépôt : `.env.local` est ignoré, `.env.example` documente les variables.
 - Seules les variables `BUN_PUBLIC_*` sont intégrées au code du navigateur.

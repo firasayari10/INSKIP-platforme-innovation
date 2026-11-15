@@ -1,54 +1,67 @@
 import type { AuthError, SupabaseClient } from "@supabase/supabase-js";
 import { LoaderCircle } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Link, Navigate, useSearchParams } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router";
 import { Alert } from "@/components/Alert";
 import { buttonVariants } from "@/components/ui/button";
-import { classifyAuthError, safeRedirectPath, type AuthErrorCode } from "@/domain/auth";
+import {
+  classifyAuthError,
+  parseCallbackParams,
+  safeRedirectPath,
+  type AuthErrorCode,
+  type CallbackParams,
+} from "@/domain/auth";
 import { authErrorMessages } from "@/lib/messages";
 import { AuthLayout } from "./AuthLayout";
 import { useAuth } from "./AuthProvider";
 
+type Verifiable = Extract<CallbackParams, { kind: "token_hash" | "code" }>;
+
 /**
- * Un code PKCE n'est échangeable qu'une fois. On mémorise la promesse par code pour que le
- * double montage de React (StrictMode) ne déclenche pas un second échange voué à l'échec.
+ * Un jeton reçu par e-mail n'est utilisable qu'une fois. On mémorise la vérification par jeton
+ * pour que le double montage de React (StrictMode) ne déclenche pas un second appel voué à l'échec.
  */
-const exchanges = new Map<string, Promise<{ error: AuthError | null }>>();
-function exchangeOnce(client: SupabaseClient, code: string) {
-  let pending = exchanges.get(code);
+const verifications = new Map<string, Promise<{ error: AuthError | null }>>();
+function verifyOnce(client: SupabaseClient, params: Verifiable) {
+  const key = params.kind === "code" ? `code:${params.code}` : `hash:${params.tokenHash}`;
+  let pending = verifications.get(key);
   if (!pending) {
-    pending = client.auth.exchangeCodeForSession(code).then(({ error }) => ({ error }));
-    exchanges.set(code, pending);
+    pending = (
+      params.kind === "code"
+        ? client.auth.exchangeCodeForSession(params.code)
+        : client.auth.verifyOtp({ token_hash: params.tokenHash, type: params.type })
+    ).then(({ error }) => ({ error }));
+    verifications.set(key, pending);
   }
   return pending;
 }
 
-/** Page d'arrivée du lien magique : /auth/callback?code=…&next=… */
+/** Page d'arrivée des liens de connexion et d'invitation : /auth/callback?… */
 export function AuthCallbackPage() {
   const { state, client } = useAuth();
-  const [params] = useSearchParams();
-  const next = safeRedirectPath(params.get("next"));
-  const code = params.get("code");
-  const providerError = params.get("error_code") ?? params.get("error");
+  const location = useLocation();
+  const [query] = useSearchParams();
+  const next = safeRedirectPath(query.get("next"));
+  const params = useMemo(() => parseCallbackParams(location.search, location.hash), [location.search, location.hash]);
 
   const [failure, setFailure] = useState<AuthErrorCode | null>(() => {
-    if (providerError) return classifyAuthError({ code: providerError }, "exchange_link") ?? "link_invalid_or_expired";
-    if (!code) return "link_invalid_or_expired";
+    if (params.kind === "error") return classifyAuthError({ code: params.code }, "exchange_link") ?? "link_invalid_or_expired";
+    if (params.kind === "invalid") return "link_invalid_or_expired";
     return null;
   });
 
   useEffect(() => {
-    if (!code || providerError) return;
+    if (params.kind !== "code" && params.kind !== "token_hash") return;
     let active = true;
-    exchangeOnce(client, code).then(({ error }) => {
+    verifyOnce(client, params).then(({ error }) => {
       if (active && error) setFailure(classifyAuthError(error, "exchange_link") ?? "link_invalid_or_expired");
     });
     return () => {
       active = false;
     };
-  }, [client, code, providerError]);
+  }, [client, params]);
 
-  // Session établie (y compris si elle l'était déjà) : on retire le code de l'URL en redirigeant.
+  // Session établie : on quitte la page, ce qui retire aussi le jeton de l'URL.
   if (state.status === "authenticated") return <Navigate to={next} replace />;
 
   return (
@@ -59,7 +72,10 @@ export function AuthCallbackPage() {
             <h2 className="text-2xl font-semibold tracking-tight">Connexion impossible</h2>
           </header>
           <Alert tone="error">{authErrorMessages[failure]}</Alert>
-          <Link to={next === "/" ? "/connexion" : `/connexion?next=${encodeURIComponent(next)}`} className={buttonVariants({ className: "h-11 w-full" })}>
+          <Link
+            to={next === "/" ? "/connexion" : `/connexion?next=${encodeURIComponent(next)}`}
+            className={buttonVariants({ className: "h-11 w-full" })}
+          >
             Recevoir un nouveau lien
           </Link>
         </div>
