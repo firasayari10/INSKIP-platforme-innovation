@@ -1,102 +1,88 @@
-import { ArrowLeft, FileUp, Inbox } from "lucide-react";
+import { FileUp } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
-import { EmptyState, ErrorBlock, LoadingBlock } from "@/components/PageStates";
+import { DataGrid, emptyGridQuery } from "@/components/data-grid/DataGrid";
+import { PageHeader } from "@/components/PageHeader";
+import { ErrorBlock, LoadingBlock } from "@/components/PageStates";
 import { Button } from "@/components/ui/button";
-import type { RowWarningCode } from "@/domain/importAnalysis";
+import { sumKnown } from "@/domain/grid";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { useLoader } from "@/hooks/useLoader";
 import { getChallenge, listIdeas } from "@/lib/data";
-import { dataErrorMessages, rowWarningLabels } from "@/lib/messages";
-
-const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+import { formatDate, formatEuro, plural } from "@/lib/format";
+import { dataErrorMessages } from "@/lib/messages";
+import { fromIdeaRow, ideaColumns, ideaDefaultSort, type IdeaGridRow } from "./ideaColumns";
 
 export function ChallengePage() {
   const { challengeId = "" } = useParams();
   const { client } = useAuth();
   const challenge = useLoader(() => getChallenge(client, challengeId), [client, challengeId]);
   const ideas = useLoader(() => listIdeas(client, challengeId), [client, challengeId]);
+  const [query, setQuery] = useState(emptyGridQuery);
+  const rows = useMemo(() => (ideas.state.status === "ready" ? ideas.state.data.map(fromIdeaRow) : []), [ideas.state]);
 
   if (challenge.state.status === "loading") return <LoadingBlock label="Chargement du challenge…" />;
   if (challenge.state.status === "error")
     return <ErrorBlock message={dataErrorMessages[challenge.state.error]} onRetry={challenge.reload} />;
   const c = challenge.state.data;
-
-  const importLink = (
-    <Button asChild>
-      <Link to={`/challenges/${c.id}/import`}>
-        <FileUp className="size-4" aria-hidden />
-        Importer des idées
-      </Link>
-    </Button>
-  );
+  const importPath = `/challenges/${c.id}/import`;
 
   return (
-    <div className="space-y-8">
-      <header className="space-y-3">
-        <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="size-4" aria-hidden />
-          Vos challenges
-        </Link>
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="space-y-1">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{c.client_name}</p>
-            <h1 className="text-2xl font-semibold tracking-tight">{c.title}</h1>
-          </div>
-          {ideas.state.status === "ready" && ideas.state.data.length > 0 && importLink}
-        </div>
-      </header>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <PageHeader
+        breadcrumb={[{ label: "Challenges", to: "/" }, { label: c.title }]}
+        title={c.title}
+        meta={
+          <>
+            Client : {c.client_name}
+            {c.jury_date && ` · Jury le ${formatDate(c.jury_date)}`}
+          </>
+        }
+      />
 
-      {ideas.state.status === "loading" && <LoadingBlock label="Chargement des idées…" />}
-      {ideas.state.status === "error" && (
+      {ideas.state.status === "error" ? (
         <ErrorBlock message={dataErrorMessages[ideas.state.error]} onRetry={ideas.reload} />
+      ) : (
+        <DataGrid<IdeaGridRow>
+          className="mx-4 mb-3"
+          label="Idées du challenge"
+          rows={rows}
+          columns={ideaColumns}
+          rowKey={r => r.ref}
+          rowLabel={r => r.ref}
+          query={query}
+          onQueryChange={setQuery}
+          defaultSort={ideaDefaultSort}
+          loadingLabel={ideas.state.status === "loading" ? "Chargement des idées…" : undefined}
+          searchLabel="Rechercher dans les idées"
+          countLabel={n => plural(n, "idée", "idées")}
+          shownLabel={n => plural(n, "affichée", "affichées")}
+          noMatchLabel="Aucune idée ne correspond à la recherche ou aux filtres."
+          actions={
+            <Button size="sm" asChild>
+              <Link to={importPath}>
+                <FileUp className="size-3.5" aria-hidden />
+                Importer un fichier
+              </Link>
+            </Button>
+          }
+          emptyBody={
+            <>
+              <p>
+                Aucune idée dans ce challenge. Importez l'export du formulaire de dépôt (fichier CSV) : il sera vérifié
+                avant tout enregistrement.
+              </p>
+              <Button size="sm" className="mt-2" asChild>
+                <Link to={importPath}>Importer un fichier</Link>
+              </Button>
+            </>
+          }
+          statusRight={shown => {
+            const { sum, missing } = sumKnown(shown.map(r => r.budgetEur));
+            return `Somme des budgets affichés : ${formatEuro(sum)}${missing > 0 ? ` (${plural(missing, "non chiffré", "non chiffrés")})` : ""}`;
+          }}
+        />
       )}
-      {ideas.state.status === "ready" &&
-        (ideas.state.data.length === 0 ? (
-          <EmptyState icon={Inbox} title="Aucune idée dans ce challenge" action={importLink}>
-            Importez l'export du formulaire de dépôt : le fichier sera analysé avant d'être enregistré.
-          </EmptyState>
-        ) : (
-          <section className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              {ideas.state.data.length} idée{ideas.state.data.length > 1 ? "s" : ""}
-            </p>
-            <div className="overflow-x-auto rounded-lg border bg-background">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-2.5 font-medium">Idée</th>
-                    <th className="px-2 py-2.5 font-medium">Direction · site</th>
-                    <th className="px-2 py-2.5 font-medium">Thème</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Budget</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {ideas.state.data.map(i => (
-                    <tr key={i.id}>
-                      <td className="px-4 py-2.5 align-top">
-                        <p className="font-medium">{i.title}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {i.external_ref}
-                          {i.quality_flags.length > 0 && (
-                            <span className="text-amber-700">
-                              {" "}
-                              · {i.quality_flags.map(f => rowWarningLabels[f as RowWarningCode] ?? f).join(", ")}
-                            </span>
-                          )}
-                        </p>
-                      </td>
-                      <td className="px-2 py-2.5 align-top">{[i.direction, i.site].filter(Boolean).join(" · ") || "—"}</td>
-                      <td className="px-2 py-2.5 align-top">{i.theme ?? "—"}</td>
-                      <td className="px-4 py-2.5 text-right align-top tabular-nums" title={i.budget_raw ?? undefined}>
-                        {i.budget_eur !== null ? euro.format(i.budget_eur) : <span className="text-muted-foreground">—</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        ))}
     </div>
   );
 }

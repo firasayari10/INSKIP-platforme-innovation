@@ -93,6 +93,28 @@ confirmation explicite.
   conservée ni dans le rapport d'analyse.
 - Réimporter un fichier met à jour les idées existantes (même identifiant) sans les dupliquer.
 
+## Interface : hypothèses
+
+Spécification complète : [docs/design/direction-ui.md](docs/design/direction-ui.md).
+
+- Les écrans de données sont des grilles façon tableur (tri par en-tête, filtre par colonne avec
+  cases à cocher, recherche, barre d'état), sans dépendance ajoutée.
+- Le **numéro de ligne** affiché est la position dans la vue (1…n après tri et filtres), pas un
+  identifiant : l'identifiant reste la colonne « Réf. ».
+- Tri, filtres, recherche et cellule active **ne sont pas conservés** d'une page à l'autre (perdus à
+  la navigation ou au rechargement) : hypothèse la plus simple pour la V1.
+- Une seule colonne de tri à la fois ; à valeur égale, les lignes restent dans l'ordre du tri par
+  défaut (Réf. croissante pour les idées). Les cellules vides sont toujours en bas.
+- Filtre du budget par **tranches fixes** : moins de 10 000 €, de 10 000 € à 50 000 €, de 50 000 € à
+  100 000 €, 100 000 € et plus (borne basse incluse), « Non chiffré » (saisie sans montant lisible),
+  « (Vides) » (aucune saisie). Date de dépôt filtrée par mois.
+- « Somme des budgets affichés » additionne les montants connus des lignes affichées ; les lignes
+  sans montant (non chiffrées ou vides) sont comptées à part.
+- Onglet « Points d'attention » de l'import : le compte est le nombre d'idées portant au moins un
+  point.
+- Case « Tout importer » de l'aperçu d'import : agit sur les lignes affichées (après filtres).
+- Pas de mode sombre en V1 (le bloc `.dark` des styles reste en place, non branché).
+
 ## Sécurité
 
 - Projet Supabase hébergé dans l'Union européenne (`eu-north-1`, Stockholm) : les données
