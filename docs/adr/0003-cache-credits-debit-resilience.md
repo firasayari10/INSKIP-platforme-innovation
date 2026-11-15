@@ -813,7 +813,8 @@ V2) et de cet ADR (statut « acceptée » lot par lot).
 
 - **Lot 0 — fait (2026-11-15)** : verrou réseau des tests (`tests/setup/no-network.ts`),
   `waitUntil` sur Vercel (D3), correctif D2 reproduit par un test, ordre des messages de
-  discussion (D8), fournisseur simulé (`LLM_PROVIDER=simulation`).
+  discussion (D8). Un fournisseur simulé a été ajouté puis retiré à la demande de l'utilisateur :
+  seuls les tests utilisent des réponses fictives.
 - **Lot 1 — fait (2026-11-15)** : `src/domain/cache.ts`, `src/server/agentCache.ts`, migration
   `cache_agents` (M-A), empreinte complète des entrées (D1), `PROMPT_VERSION` 1.2 (référence de
   l'idée retirée des consignes des agents).

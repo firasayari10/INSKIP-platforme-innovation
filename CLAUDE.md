@@ -228,7 +228,7 @@ garder le test. Pas de correctif « à l'aveugle » ; `root-cause-analyst` si la
 | XSS | Texte d'idée rendu dans l'UI | Rendu React par défaut uniquement ; **interdit** : `dangerouslySetInnerHTML` sur du contenu importé |
 | Fichier piégé / déni de service | Upload énorme ou malformé | Limites de taille et de nombre de lignes, parsing côté navigateur, erreurs gérées ligne à ligne |
 | Abus de l'API IA / coût | Appels répétés à `api/` | JWT obligatoire, entrée validée par zod, taille de lot plafonnée, concurrence limitée, idempotence (pas de nouvel appel si une suggestion existe pour le même `content_hash` + `prompt_version` + modèle) |
-| Exposition de données personnelles | IA, export, logs | Minimisation à l'import, `idea_authors` isolée, pseudonymisation avant l'IA, export anonyme par défaut, **aucune donnée personnelle dans les logs** |
+| Exposition de données personnelles / biais | IA, export, logs | Minimisation à l'import, `idea_authors` isolée, **pseudonymisation de tout texte envoyé à l'IA** (`src/domain/pseudonymize.ts` : noms des auteurs, civilités, e-mails, téléphones, identifiants, âges), export anonyme par défaut, **aucune donnée personnelle dans les logs** |
 
 ### Checklist à chaque diff
 - [ ] Aucun secret, jeton, URL privée ni donnée réelle ajoutés.

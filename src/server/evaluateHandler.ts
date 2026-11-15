@@ -11,9 +11,9 @@ import {
 } from "./evaluateIdea";
 import { createOpenRouterCaller, type AgentCaller } from "./openrouter";
 import { createRateLimiter, type RateLimiter } from "./rateLimiter";
-import { createSimulatedCaller } from "./simulatedLlm";
 import { createZaiCaller } from "./zai";
 import { evaluationInputKey } from "../domain/cache";
+import { createPseudonymizer, type Pseudonymizer, type PseudonymizationReport } from "../domain/pseudonymize";
 import { sha256Hex } from "../lib/hash";
 import { createSupabaseAgentCache, type AgentCache } from "./agentCache";
 import { evaluatorNotes } from "../domain/chat";
@@ -33,7 +33,7 @@ import { evaluatorNotes } from "../domain/chat";
 
 export const envSchema = z
   .object({
-    LLM_PROVIDER: z.enum(["zai", "openrouter", "simulation"]).optional(),
+    LLM_PROVIDER: z.enum(["zai", "openrouter"]).optional(),
     SUPABASE_URL: z.url(),
     SUPABASE_PUBLISHABLE_KEY: z.string().min(10),
     SUPABASE_SECRET_KEY: z.string().min(10),
@@ -61,7 +61,7 @@ export const envSchema = z
     APP_URL: z.url().default("http://localhost:3000"),
   })
   .transform(env => ({ ...env, provider: env.LLM_PROVIDER ?? (env.ZAI_API_KEY ? "zai" : "openrouter") }))
-  .refine(env => env.provider === "simulation" || (env.provider === "zai" ? !!env.ZAI_API_KEY : !!env.OPENROUTER_API_KEY), {
+  .refine(env => (env.provider === "zai" ? !!env.ZAI_API_KEY : !!env.OPENROUTER_API_KEY), {
     message: "clé du fournisseur d'IA manquante",
     path: ["provider"],
   });
@@ -113,7 +113,6 @@ export function limiterFor(env: ServerEnv): RateLimiter {
 }
 
 export function modelsFor(env: ServerEnv): AgentModels {
-  if (env.provider === "simulation") return { analyste: "simulation", consultant: "simulation", associe: "simulation" };
   return env.provider === "zai"
     ? { analyste: env.ZAI_MODEL_ANALYSTE, consultant: env.ZAI_MODEL_CONSULTANT, associe: env.ZAI_MODEL_ASSOCIE }
     : { analyste: env.OPENROUTER_MODEL_ANALYSTE, consultant: env.OPENROUTER_MODEL_CONSULTANT, associe: env.OPENROUTER_MODEL_ASSOCIE };
@@ -123,14 +122,10 @@ export function modelsFor(env: ServerEnv): AgentModels {
 export function callParamsFor(env: ServerEnv): CallParams {
   if (env.provider === "zai")
     return { provider: "zai", temperature: 0.2, maxTokens: 4096, thinking: env.ZAI_THINKING === "true", webCount: env.WEB_MAX_RESULTS };
-  if (env.provider === "openrouter")
-    return { provider: "openrouter", temperature: 0.2, maxTokens: 0, thinking: false, webCount: env.WEB_MAX_RESULTS };
-  return { provider: "simulation", temperature: 0, maxTokens: 0, thinking: false, webCount: 0 };
+  return { provider: "openrouter", temperature: 0.2, maxTokens: 0, thinking: false, webCount: env.WEB_MAX_RESULTS };
 }
 
 export function callerFor(env: ServerEnv, limiter: RateLimiter): AgentCaller {
-  // Aucun appel réseau ni jeton consommé (développement, démonstration).
-  if (env.provider === "simulation") return createSimulatedCaller();
   if (env.provider === "zai") {
     return createZaiCaller({
       apiKey: env.ZAI_API_KEY!,
@@ -148,6 +143,21 @@ export function callerFor(env: ServerEnv, limiter: RateLimiter): AgentCaller {
     appUrl: env.APP_URL,
   });
   return request => limiter.run(() => openRouter(request));
+}
+
+/** Pseudonymiseur alimenté par les noms des auteurs du challenge (lus via la RLS). */
+export async function pseudonymizerFor(userDb: SupabaseClient, challengeId: string): Promise<Pseudonymizer> {
+  const { data } = await userDb
+    .from("idea_authors")
+    .select("first_name, last_name")
+    .eq("challenge_id", challengeId)
+    .order("idea_id");
+  return createPseudonymizer(
+    ((data ?? []) as { first_name: string | null; last_name: string | null }[]).map(a => ({
+      firstName: a.first_name,
+      lastName: a.last_name,
+    })),
+  );
 }
 
 export interface HandlerDeps {
@@ -233,21 +243,26 @@ export async function handleEvaluateIdea(
     noteMessageIds = (chat ?? []).map(m => m.id as string);
   }
 
-  const challenge = (Array.isArray(idea.challenges) ? idea.challenges[0] : idea.challenges) as {
+  // Pseudonymisation avant tout envoi à l'IA (données personnelles et biais) : noms des auteurs du
+  // challenge lus avec les droits de l'utilisateur ; la clé serveur n'y a pas accès.
+  const pseudo = await pseudonymizerFor(userDb, idea.challenge_id);
+  const challengeRow = (Array.isArray(idea.challenges) ? idea.challenges[0] : idea.challenges) as {
     client_name: string;
     title: string;
     context: string | null;
   };
+  const challenge = { ...challengeRow, context: pseudo.maybe(challengeRow.context) };
+  notes = pseudo.maybe(notes);
   const input: EvaluationInput = {
     idea: {
       external_ref: idea.external_ref,
-      title: idea.title,
-      description: idea.description,
-      expected_benefits: idea.expected_benefits,
+      title: pseudo.text(idea.title),
+      description: pseudo.text(idea.description),
+      expected_benefits: pseudo.maybe(idea.expected_benefits),
       direction: idea.direction,
       site: idea.site,
       theme: idea.theme,
-      budget_raw: idea.budget_raw,
+      budget_raw: pseudo.maybe(idea.budget_raw),
       budget_eur: idea.budget_eur === null ? null : Number(idea.budget_eur),
     },
     challenge,
@@ -321,6 +336,7 @@ export async function handleEvaluateIdea(
     caller: deps.caller ?? callerFor(env, limiterFor(env)),
     adminDb,
     noteMessageIds,
+    masked: pseudo.report(),
     options: {
       cache: deps.agentCache ?? createSupabaseAgentCache(adminDb, idea.challenge_id, env.AGENT_CACHE_MAX_AGE_DAYS),
       useCache: !body.force,
@@ -342,6 +358,8 @@ async function runAndStore(args: {
   caller: AgentCaller;
   adminDb: SupabaseClient;
   noteMessageIds: string[];
+  /** Nombre d'éléments masqués avant l'envoi à l'IA (traçabilité, sans les valeurs). */
+  masked: PseudonymizationReport;
   options: EvaluationOptions;
 }): Promise<void> {
   const { evaluationId, adminDb } = args;
@@ -395,7 +413,7 @@ async function runAndStore(args: {
           synthesis: { ...r.synthesis, note_globale_ia: r.aiGlobalScore },
           recommendation: r.synthesis.recommandation,
           web_sources_count: r.webSourcesCount,
-          usage: r.usage,
+          usage: { ...r.usage, pseudonymisation: args.masked },
           completed_at: new Date().toISOString(),
         })
         .eq("id", evaluationId);

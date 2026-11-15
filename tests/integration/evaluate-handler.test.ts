@@ -33,7 +33,7 @@ const ideaRow = {
   challenge_id: "22222222-2222-4222-8222-222222222222",
   external_ref: "IDEA-001",
   title: "Capteurs",
-  description: "Capteurs de vibration.",
+  description: "Capteurs de vibration. Proposé par Julie Marchand (julie.marchand@hexavia.fr, 06 12 34 56 78).",
   expected_benefits: "Moins d'arrêts",
   direction: "Maintenance",
   site: "Lyon",
@@ -57,6 +57,7 @@ function fakeSupabase(opts: { user?: boolean; idea?: boolean; previous?: unknown
   const data: Record<string, unknown> = {
     ideas: opts.idea === false ? null : ideaRow,
     criteria: criteriaRows,
+    idea_authors: [{ first_name: "Julie", last_name: "Marchand" }],
     evaluations: opts.previous ?? [],
     idea_chat_messages: [
       { id: "msg-1", content: "Le budget réel est de 55 k€." },
@@ -266,7 +267,8 @@ describe("POST /api/evaluate-idea", () => {
     ]);
     expect(writes.every(w => w.key === env.SUPABASE_SECRET_KEY)).toBe(true);
     expect(ops.some(o => o.table === "scores")).toBe(false); // la note humaine n'est jamais touchée
-    expect(ops.some(o => o.table === "idea_authors")).toBe(false); // aucune donnée personnelle lue
+    // Les noms d'auteurs ne sont lus qu'avec le jeton de l'utilisateur (RLS), jamais avec la clé serveur.
+    expect(ops.filter(o => o.table === "idea_authors").every(o => o.key === env.SUPABASE_PUBLISHABLE_KEY)).toBe(true);
     const created = writes[1]!.payload as Record<string, unknown>;
     expect(created).toMatchObject({ status: "running", prompt_version: PROMPT_VERSION, requested_by: "user-1" });
     expect(created.input_fingerprint).toMatch(/^[0-9a-f]{64}$/);
@@ -363,5 +365,30 @@ describe("réutilisation par empreinte complète des entrées (défauts D1 et D2
     expect(r.status).toBe(202);
     await jobs.settle();
     expect(ops.some(o => o.table === "agent_outputs" && o.kind === "select")).toBe(false);
+  });
+});
+
+describe("pseudonymisation avant l'envoi à l'IA", () => {
+  test("aucun nom, e-mail ni téléphone n'atteint les agents ; le masquage est tracé sans les valeurs", async () => {
+    const { make, ops } = fakeSupabase();
+    const sent: string[] = [];
+    const caller: AgentCaller = async r => {
+      sent.push(r.messages.map(m => m.content).join("\n"));
+      return okCaller(r);
+    };
+    const jobs = backgroundCatcher();
+    await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, { createSupabase: make, caller, ...jobs });
+    await jobs.settle();
+    expect(sent.length).toBeGreaterThan(0);
+    for (const text of sent) {
+      expect(text).not.toContain("Marchand");
+      expect(text).not.toContain("julie.marchand@hexavia.fr");
+      expect(text).not.toContain("06 12 34 56 78");
+      expect(text).toContain("[PERSONNE_1]");
+    }
+    const completed = ops.find(o => o.kind === "update" && o.table === "evaluations" && (o.payload as { status?: string }).status === "completed")!;
+    const usage = (completed.payload as { usage: { pseudonymisation: Record<string, number> } }).usage;
+    expect(usage.pseudonymisation).toEqual({ personnes: 1, emails: 1, telephones: 1, identifiants: 0 });
+    expect(JSON.stringify(completed.payload)).not.toContain("Marchand");
   });
 });

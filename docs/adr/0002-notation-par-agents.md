@@ -77,6 +77,16 @@ informations fournies par l'utilisateur.
   dans `evaluations.evaluator_notes` ; les messages sont rattachés à l'évaluation produite.
   `PROMPT_VERSION` passe à 1.1.
 
+### Révision du 2026-11-15 : pseudonymisation systématique
+
+Tout texte envoyé au fournisseur d'IA (champs de l'idée, contexte client, informations de
+l'évaluateur, discussion complète) passe par `createPseudonymizer` : noms des auteurs du
+challenge remplacés par des jetons stables, civilités, coordonnées, identifiants et âges masqués,
+pour protéger les données personnelles et éviter que l'identité ou le profil de l'auteur influence
+la note. La pseudonymisation a lieu avant le calcul des empreintes de cache. Le fournisseur
+simulé un temps ajouté a été retiré : l'application utilise toujours le fournisseur réel, seuls
+les tests utilisent des réponses fictives.
+
 ## Conséquences
 
 - Nouvelle clé serveur : `SUPABASE_SECRET_KEY` (jamais dans le navigateur ; l'application refuse

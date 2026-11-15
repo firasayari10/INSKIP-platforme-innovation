@@ -9,7 +9,7 @@ import {
   type MentionedIdea,
 } from "../domain/chat";
 import { jsonSchemaOf, type IdeaForScoring } from "../domain/scoring";
-import { callerFor, envSchema, fail, json, limiterFor, modelsFor } from "./evaluateHandler";
+import { callerFor, envSchema, fail, json, limiterFor, modelsFor, pseudonymizerFor } from "./evaluateHandler";
 import type { AgentCaller } from "./openrouter";
 
 /**
@@ -177,6 +177,8 @@ export async function handleIdeaChat(
     title: string;
     context: string | null;
   };
+  // Pseudonymisation de TOUT ce qui part vers l'IA (idée, idées citées, historique, question).
+  const pseudo = await pseudonymizerFor(userDb, idea.challenge_id);
   const messages = chatMessages({
     idea: toIdea(idea as unknown as IdeaRow),
     challenge,
@@ -184,7 +186,7 @@ export async function handleIdeaChat(
     mentioned,
     history,
     question: body.message,
-  });
+  }).map(m => ({ ...m, content: pseudo.text(m.content) }));
 
   const caller = deps.caller ?? callerFor(env, limiterFor(env));
   const model = modelsFor(env).associe;

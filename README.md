@@ -118,6 +118,24 @@ Configuration (`.env.local` en local, variables Vercel en production ; voir `.en
   recherche web intégrée (outil `web_search`) ;
 - **OpenRouter** (`LLM_PROVIDER=openrouter`, `OPENROUTER_API_KEY`) : un modèle par rôle.
 
+### Pseudonymisation avant l'envoi à l'IA
+
+Avant tout envoi au fournisseur d'IA (évaluation comme discussion), `src/domain/pseudonymize.ts`
+masque ce qui identifie une personne ou peut biaiser le jugement :
+
+- **noms des auteurs du challenge** (nom complet, nom seul, ordre inversé, sans tenir compte des
+  accents ni de la casse) → `[PERSONNE_1]`, `[PERSONNE_2]`… (jeton stable au sein d'une
+  évaluation) ; civilité suivie d'un nom inconnu (« M. Durand ») → `[PERSONNE]` ;
+- **e-mails, téléphones, IBAN, numéros de sécurité sociale, matricules et badges** ;
+- **âge d'une personne** (« j'ai 58 ans ») → `[ÂGE]`.
+
+Le contenu métier n'est pas modifié (montants, pourcentages, dates, sites, directions, normes).
+Un prénom seul n'est pas masqué (trop de confusions avec des mots courants). Les noms des auteurs
+sont lus avec les droits de l'utilisateur ; la clé serveur n'y a pas accès. Chaque évaluation
+enregistre le nombre d'éléments masqués par catégorie, jamais les valeurs. Dans la discussion, le
+message de l'évaluateur est conservé tel qu'il l'a écrit ; seule la version envoyée à l'IA est
+masquée.
+
 ### Cache des évaluations (ADR 0003 §1)
 
 - Chaque appel d'agent est mémorisé dans `agent_outputs` sous l'empreinte exacte de sa requête
@@ -128,8 +146,8 @@ Configuration (`.env.local` en local, variables Vercel en production ; voir `.en
   contenu identique (doublons exacts) partagent leurs analyses.
 - Une évaluation déjà faite avec exactement les mêmes entrées est réutilisée telle quelle
   (empreinte complète des entrées). « Relancer l'évaluation » ignore ces deux caches.
-- `LLM_PROVIDER=simulation` : réponses générées sans appel au fournisseur (aucun jeton consommé),
-  pour développer et démontrer l'application. Les tests interdisent tout appel réseau sortant.
+- Les tests n'appellent jamais le fournisseur d'IA : ils utilisent des réponses fictives internes
+  aux tests, et tout appel réseau sortant y est interdit (`tests/setup/no-network.ts`).
 
 ### Limitation de débit
 

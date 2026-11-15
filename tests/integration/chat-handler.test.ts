@@ -56,6 +56,7 @@ function fakeSupabase(opts: { idea?: boolean; hourCount?: number } = {}) {
           return { data: opts.idea === false ? null : idea, error: null };
         }
         if (table === "evaluations") return { data: null, error: null };
+        if (table === "idea_authors") return { data: [{ first_name: "Julie", last_name: "Marchand" }], error: null };
         if (table === "idea_chat_messages") return { data: [], error: null };
         return { data: null, error: null };
       };
@@ -149,7 +150,7 @@ describe("POST /api/idea-chat", () => {
     const sent = calls[0]!.messages.map(m => m.content).join("\n");
     expect(sent).toContain("### IDEA-007");
     expect(calls[0]!.web).toBe(false);
-    expect(ops.some(o => o.table === "idea_authors")).toBe(false);
+    expect(ops.filter(o => o.table === "idea_authors").every(o => o.key === env.SUPABASE_PUBLISHABLE_KEY)).toBe(true);
   });
 
   test("échec de l'IA : code d'erreur, rien n'est enregistré", async () => {
@@ -168,5 +169,23 @@ describe("POST /api/idea-chat", () => {
     expect(r.status).toBe(502);
     expect(calls).toHaveLength(2);
     expect(ops.some(o => o.kind === "insert")).toBe(false);
+  });
+});
+
+describe("pseudonymisation de la discussion", () => {
+  test("le nom cité par le consultant est masqué avant l'envoi, mais son message est conservé tel quel", async () => {
+    const { make, ops } = fakeSupabase();
+    const { caller, calls } = capturingCaller();
+    const r = await handleIdeaChat(post({ ideaId: IDEA_ID, message: "Julie Marchand dit que le budget réel est de 55 k€, joignable au 06 12 34 56 78" }), env, {
+      createSupabase: make,
+      caller,
+    });
+    expect(r.status).toBe(200);
+    const sent = calls[0]!.messages.map(m => m.content).join("\n");
+    expect(sent).not.toContain("Marchand");
+    expect(sent).not.toContain("06 12 34 56 78");
+    expect(sent).toContain("[PERSONNE_1] dit que le budget réel est de 55 k€");
+    const saved = ops.find(o => o.kind === "insert")!.payload as { role: string; content: string }[];
+    expect(saved[0]!.content).toContain("Julie Marchand"); // l'historique de l'évaluateur reste lisible pour lui
   });
 });
