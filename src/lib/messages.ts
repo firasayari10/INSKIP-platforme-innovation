@@ -1,3 +1,6 @@
+import type { FieldKey, FileError, RowErrorCode, RowWarningCode } from "@/domain/importAnalysis";
+import type { CsvError } from "./csv";
+import type { DataError } from "./data";
 import type { AuthErrorCode, EmailError, OtpError } from "@/domain/auth";
 import type { ConfigError } from "./config";
 
@@ -29,4 +32,76 @@ export const configErrorMessages: Record<ConfigError, string> = {
   missing: "La connexion à la base de données n'est pas configurée.",
   invalid_url: "L'adresse de la base de données configurée n'est pas valide.",
   secret_key_exposed: "Une clé secrète a été fournie au navigateur. L'application refuse de démarrer par sécurité.",
+};
+
+// ---------- Données ----------
+
+export const dataErrorMessages: Record<DataError, string> = {
+  acces_refuse: "Vous n'avez pas accès à ce challenge. Demandez à son créateur de vous ajouter.",
+  introuvable: "Ce challenge n'existe pas ou n'est plus accessible.",
+  donnees_invalides: "Les données reçues sont incomplètes. Réessayez ; si le problème persiste, contactez l'administrateur.",
+  reseau: "Connexion au serveur impossible. Vérifiez votre accès à Internet puis réessayez.",
+  service_non_initialise:
+    "La base de données de l'application n'est pas encore installée. Contactez l'administrateur de la plateforme.",
+  inconnue: "Une erreur inattendue s'est produite. Réessayez dans quelques instants.",
+};
+
+// ---------- Import ----------
+
+export const fieldLabels: Record<FieldKey, string> = {
+  external_ref: "Identifiant",
+  submitted_at: "Date de dépôt",
+  first_name: "Prénom",
+  last_name: "Nom",
+  direction: "Direction",
+  site: "Site",
+  theme: "Thème",
+  title: "Titre",
+  description: "Description",
+  expected_benefits: "Bénéfices attendus",
+  budget: "Budget estimé",
+};
+
+export const csvErrorMessages: Record<CsvError, string> = {
+  format_non_supporte: "Ce format n'est pas pris en charge. Enregistrez votre fichier au format CSV depuis Excel (Fichier → Enregistrer sous → CSV).",
+  fichier_trop_volumineux: "Ce fichier dépasse 5 Mo. Vérifiez qu'il s'agit bien de l'export des idées.",
+  fichier_vide: "Ce fichier est vide.",
+  lecture_impossible: "Le fichier n'a pas pu être lu correctement (guillemets mal fermés). Réexportez-le depuis le formulaire puis réessayez.",
+};
+
+export function fileErrorMessage(error: FileError): string {
+  switch (error.code) {
+    case "fichier_vide":
+      return "Ce fichier ne contient aucune ligne d'en-tête.";
+    case "colonnes_manquantes":
+      return `Colonnes obligatoires introuvables : ${error.missing.map(f => fieldLabels[f]).join(", ")}. Vérifiez que vous avez exporté le bon fichier et que la première ligne contient bien les noms de colonnes.`;
+    case "colonnes_en_double":
+      return `Plusieurs colonnes correspondent au même champ : ${error.headers.join(", ")}. Supprimez la colonne en trop puis réessayez.`;
+    case "trop_de_lignes":
+      return `Ce fichier contient ${error.found} lignes ; la limite est de ${error.max}. Découpez-le en plusieurs fichiers.`;
+  }
+}
+
+export const rowErrorLabels: Record<RowErrorCode, string> = {
+  identifiant_manquant: "Identifiant manquant",
+  identifiant_en_double: "Identifiant déjà utilisé plus haut",
+  titre_manquant: "Titre manquant",
+  description_manquante: "Description manquante",
+  texte_trop_long: "Texte anormalement long",
+};
+
+export const rowWarningLabels: Record<RowWarningCode, string> = {
+  theme_manquant: "Thème non renseigné",
+  site_manquant: "Site non renseigné",
+  direction_manquante: "Direction non renseignée",
+  auteur_manquant: "Auteur non renseigné",
+  description_courte: "Description très courte",
+  cellule_formule: "Cellule ressemblant à une formule (conservée comme texte)",
+  budget_absent: "Budget non renseigné",
+  budget_non_chiffre: "Budget non chiffré",
+  budget_avec_commentaire: "Budget accompagné d'un commentaire",
+  budget_ambigu: "Budget donné sous forme de fourchette",
+  date_manquante: "Date de dépôt manquante",
+  date_invalide: "Date de dépôt illisible",
+  date_reformatee: "Date convertie au format standard",
 };

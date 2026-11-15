@@ -64,6 +64,35 @@ Connexion sans mot de passe, réservée aux personnes invitées (voir
 par heure et n'écrit qu'aux membres de l'organisation Supabase. Pour inviter d'autres
 personnes, configurer un SMTP (Authentication → Emails → SMTP Settings).
 
+## Base de données (migrations)
+
+Le schéma est versionné dans `supabase/migrations/`, avec ses tests dans `supabase/tests/`.
+
+```bash
+bunx supabase link --project-ref <ref-du-projet>   # une seule fois
+bunx supabase db push --remote                     # applique les nouvelles migrations
+```
+
+La CLI Supabase 3 vise la base **locale** par défaut : `--remote` est indispensable pour le
+projet en ligne. Lancée depuis un assistant de code, elle exige en plus `--yes`, qui vaut
+confirmation explicite.
+
+## Import des idées : hypothèses
+
+- Fichier **CSV** (séparateur `;` ou `,`, UTF-8 ou Windows-1252), 5 Mo et 2 000 lignes au maximum.
+- Colonnes reconnues : `id`, `date_depot`, `prenom`, `nom`, `direction`, `site`, `theme`,
+  `titre`, `description`, `benefices_attendus`, `budget_estime` (en-têtes tolérants : casse,
+  accents, espaces). Obligatoires : `id`, `titre`, `description`.
+- Ligne rejetée : identifiant, titre ou description manquant, identifiant répété, texte anormalement
+  long. Ligne importée mais signalée : thème, site ou direction absents, budget absent ou non
+  chiffré, date convertie, description très courte, cellule ressemblant à une formule.
+- Budgets convertis en euros (« 15k€ » → 15 000), saisie d'origine toujours conservée.
+- Doublons : contenu identique (certain) ou formulation proche (similarité ≥ 28 %). Rien n'est
+  fusionné automatiquement. Limite : la même idée formulée avec d'autres mots n'est pas détectée.
+- Prénom et nom sont stockés à part (`idea_authors`) et n'apparaissent ni dans la ligne source
+  conservée ni dans le rapport d'analyse.
+- Réimporter un fichier met à jour les idées existantes (même identifiant) sans les dupliquer.
+
 ## Sécurité
 
 - Projet Supabase hébergé dans l'Union européenne (`eu-north-1`, Stockholm) : les données

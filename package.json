@@ -19,6 +19,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.525.0",
+    "papaparse": "^5.7.1",
     "react": "^19",
     "react-dom": "^19",
     "react-router": "^8.5.1",
@@ -29,6 +30,7 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/papaparse": "^5.5.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "typescript": "^7.0.2"
