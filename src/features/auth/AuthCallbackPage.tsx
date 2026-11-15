@@ -67,19 +67,21 @@ export function AuthCallbackPage() {
   return (
     <AuthLayout>
       {failure ? (
-        <div className="space-y-4">
-          <h1 className="text-lg font-semibold">Connexion impossible</h1>
+        <div className="space-y-6">
+          <header className="space-y-2">
+            <h2 className="text-2xl font-semibold tracking-tight">Connexion impossible</h2>
+          </header>
           <Alert tone="error">{authErrorMessages[failure]}</Alert>
           <Link
             to={next === "/" ? "/connexion" : `/connexion?next=${encodeURIComponent(next)}`}
-            className={buttonVariants({ size: "lg", className: "w-full" })}
+            className={buttonVariants({ className: "h-11 w-full" })}
           >
             Recevoir un nouveau lien
           </Link>
         </div>
       ) : (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
-          <LoaderCircle className="size-4 animate-spin" aria-hidden />
+        <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status" aria-live="polite">
+          <LoaderCircle className="size-5 animate-spin" aria-hidden />
           Connexion en cours…
         </div>
       )}

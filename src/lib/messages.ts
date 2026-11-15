@@ -2,7 +2,6 @@ import type { FieldKey, FileError, RowErrorCode, RowWarningCode } from "@/domain
 import type { CsvError } from "./csv";
 import type { DataError } from "./data";
 import type { AuthErrorCode, EmailError, OtpError } from "@/domain/auth";
-import type { BudgetRange } from "@/domain/grid";
 import type { ConfigError } from "./config";
 
 /** Seul endroit où les codes d'erreur deviennent des phrases pour l'utilisateur. */
@@ -105,19 +104,4 @@ export const rowWarningLabels: Record<RowWarningCode, string> = {
   date_manquante: "Date de dépôt manquante",
   date_invalide: "Date de dépôt illisible",
   date_reformatee: "Date convertie au format standard",
-};
-
-/** Points d'attention enregistrés en base (texte libre) : libellé connu, sinon le code tel quel. */
-export function warningLabel(code: string): string {
-  return code in rowWarningLabels ? rowWarningLabels[code as RowWarningCode] : code;
-}
-
-// ---------- Grille ----------
-
-export const budgetRangeLabels: Record<BudgetRange, string> = {
-  moins_10k: "Moins de 10 000 €",
-  "10k_50k": "De 10 000 € à 50 000 €",
-  "50k_100k": "De 50 000 € à 100 000 €",
-  "100k_plus": "100 000 € et plus",
-  non_chiffre: "Non chiffré",
 };

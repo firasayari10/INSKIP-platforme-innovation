@@ -1,28 +1,30 @@
-import { Check, ChevronRight, CircleAlert, FileUp, LoaderCircle, TriangleAlert } from "lucide-react";
+import {
+  ArrowLeft,
+  CircleAlert,
+  CircleCheck,
+  Copy,
+  FileSpreadsheet,
+  FileUp,
+  LoaderCircle,
+  TriangleAlert,
+} from "lucide-react";
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import { Alert } from "@/components/Alert";
-import { DataGrid, emptyGridQuery } from "@/components/data-grid/DataGrid";
-import type { CheckColumn, DataGridColumn } from "@/components/data-grid/types";
-import { PageHeader } from "@/components/PageHeader";
 import { ErrorBlock, LoadingBlock } from "@/components/PageStates";
-import { Tabs } from "@/components/Tabs";
 import { Button } from "@/components/ui/button";
-import type { GridQuery, GridSort } from "@/domain/grid";
 import {
   analyzeImport,
   buildImportPayload,
+  type AnalyzedIdea,
   type ImportAnalysis,
-  type RejectedRow,
   type RowWarningCode,
 } from "@/domain/importAnalysis";
 import { contentKey } from "@/domain/text";
 import { useAuth } from "@/features/auth/AuthProvider";
-import { fromAnalyzedIdea, ideaColumns, ideaDefaultSort, type IdeaGridRow } from "@/features/ideas/ideaColumns";
 import { useLoader } from "@/hooks/useLoader";
 import { checkFile, parseCsvText } from "@/lib/csv";
-import { getChallenge, importIdeas, type Challenge, type ImportResult } from "@/lib/data";
-import { formatNumber, plural } from "@/lib/format";
+import { getChallenge, importIdeas, type ImportResult } from "@/lib/data";
 import { sha256Hex } from "@/lib/hash";
 import {
   csvErrorMessages,
@@ -37,6 +39,8 @@ type Step =
   | { name: "select"; error: string | null }
   | { name: "review"; fileName: string; analysis: ImportAnalysis }
   | { name: "done"; result: ImportResult; imported: number };
+
+const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 
 /** Les exports Excel français sont parfois en Windows-1252 : on essaie UTF-8 strict d'abord. */
 async function readText(file: File): Promise<string> {
@@ -59,17 +63,23 @@ export function ImportPage() {
   const challenge = state.data;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <PageHeader
-        breadcrumb={[
-          { label: "Challenges", to: "/" },
-          { label: challenge.title, to: `/challenges/${challenge.id}` },
-          { label: "Importer un fichier" },
-        ]}
-        title="Importer un fichier d'idées"
-      >
-        <ImportSteps current={step.name} />
-      </PageHeader>
+    <div className="space-y-8">
+      <header className="space-y-3">
+        <Link
+          to={`/challenges/${challenge.id}`}
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" aria-hidden />
+          {challenge.title}
+        </Link>
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Importer des idées</h1>
+          <p className="text-sm text-muted-foreground">
+            Déposez l'export du formulaire. Le fichier est analysé sur votre ordinateur avant tout enregistrement.
+          </p>
+        </div>
+        <Stepper current={step.name} />
+      </header>
 
       {step.name === "select" && (
         <FileStep
@@ -87,45 +97,34 @@ export function ImportPage() {
           onDone={(result, imported) => setStep({ name: "done", result, imported })}
         />
       )}
-      {step.name === "done" && (
-        <DoneStep
-          challenge={challenge}
-          result={step.result}
-          imported={step.imported}
-          onAgain={() => setStep({ name: "select", error: null })}
-        />
-      )}
+      {step.name === "done" && <DoneStep challengeId={challenge.id} result={step.result} imported={step.imported} />}
     </div>
   );
 }
 
-// ---------- Indicateur d'étapes ----------
-
-function ImportSteps({ current }: { current: Step["name"] }) {
+function Stepper({ current }: { current: Step["name"] }) {
   const steps: { key: Step["name"]; label: string }[] = [
-    { key: "select", label: "1. Choisir le fichier" },
-    { key: "review", label: "2. Vérifier" },
-    { key: "done", label: "3. Terminé" },
+    { key: "select", label: "Fichier" },
+    { key: "review", label: "Analyse" },
+    { key: "done", label: "Enregistrement" },
   ];
   const index = steps.findIndex(s => s.key === current);
   return (
-    <ol aria-label="Étapes de l'import" className="flex flex-wrap items-center gap-2 pt-1 text-ui">
+    <ol className="flex flex-wrap items-center gap-2 text-sm" aria-label="Étapes de l'import">
       {steps.map((s, i) => (
         <li key={s.key} className="flex items-center gap-2">
-          {i > 0 && <ChevronRight className="size-3.5 text-muted-foreground" aria-hidden />}
-          {i < index ? (
-            <span className="flex items-center gap-1 text-foreground">
-              <Check className="size-3.5 text-success" aria-hidden />
-              {s.label}
-              <span className="sr-only"> (terminée)</span>
-            </span>
-          ) : i === index ? (
-            <span aria-current="step" className="border-b-2 border-primary pb-0.5 font-semibold text-foreground">
-              {s.label}
-            </span>
-          ) : (
-            <span className="text-muted-foreground">{s.label}</span>
-          )}
+          <span
+            aria-current={i === index ? "step" : undefined}
+            className={cn(
+              "flex items-center gap-2 rounded-full px-3 py-1",
+              i === index && "bg-primary text-primary-foreground",
+              i < index && "bg-muted text-foreground",
+              i > index && "text-muted-foreground",
+            )}
+          >
+            <span className="tabular-nums">{i + 1}.</span> {s.label}
+          </span>
+          {i < steps.length - 1 && <span className="h-px w-6 bg-border" aria-hidden />}
         </li>
       ))}
     </ol>
@@ -174,7 +173,7 @@ function FileStep({
   };
 
   return (
-    <div className="max-w-2xl space-y-3 px-4 pb-4">
+    <div className="space-y-4">
       <div
         onDragOver={e => {
           e.preventDefault();
@@ -183,85 +182,37 @@ function FileStep({
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
         className={cn(
-          "rounded-sm border border-dashed px-4 py-8",
-          dragging ? "border-primary bg-selection-row" : "border-input bg-background",
+          "flex flex-col items-center rounded-xl border-2 border-dashed bg-background px-6 py-14 text-center transition-colors",
+          dragging ? "border-indigo-400 bg-indigo-50/60" : "border-border",
         )}
       >
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          {busy ? (
-            <>
-              <LoaderCircle className="size-4 animate-spin text-muted-foreground" aria-hidden />
-              <span role="status">Analyse du fichier…</span>
-            </>
-          ) : (
-            <>
-              <FileUp className="size-4 text-muted-foreground" aria-hidden />
-              Glissez le fichier CSV ici, ou
-            </>
-          )}
-          <Button variant="outline" size="sm" onClick={() => inputRef.current?.click()} disabled={busy}>
-            Choisir un fichier…
-          </Button>
-        </div>
+        <span className="flex size-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+          {busy ? <LoaderCircle className="size-6 animate-spin" aria-hidden /> : <FileUp className="size-6" aria-hidden />}
+        </span>
+        <p className="mt-4 font-medium">{busy ? "Analyse du fichier…" : "Glissez votre fichier CSV ici"}</p>
+        <p className="mt-1 text-sm text-muted-foreground">ou</p>
+        <Button className="mt-3" variant="outline" onClick={() => inputRef.current?.click()} disabled={busy}>
+          Choisir un fichier
+        </Button>
         <input
           ref={inputRef}
           type="file"
           accept=".csv,text/csv"
           className="sr-only"
-          tabIndex={-1}
           aria-label="Choisir le fichier CSV des idées"
           onChange={e => void handleFile(e.target.files?.[0])}
         />
+        <p className="mt-6 max-w-md text-xs text-muted-foreground text-pretty">
+          Format attendu : CSV (séparateur point-virgule ou virgule), 5 Mo maximum. Colonnes obligatoires : identifiant,
+          titre, description.
+        </p>
       </div>
-
       {error && <Alert tone="error">{error}</Alert>}
-
-      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-xs">
-        <dt className="text-muted-foreground">Format</dt>
-        <dd>CSV, séparateur point-virgule ou virgule</dd>
-        <dt className="text-muted-foreground">Taille</dt>
-        <dd>5 Mo maximum</dd>
-        <dt className="text-muted-foreground">Colonnes obligatoires</dt>
-        <dd>identifiant, titre, description</dd>
-        <dt className="text-muted-foreground">Confidentialité</dt>
-        <dd>Le fichier est analysé sur votre ordinateur ; rien n'est enregistré avant votre validation.</dd>
-      </dl>
     </div>
   );
 }
 
-// ---------- Étape 2 : vérifier ----------
-
-type TabId = "ideas" | "rejected" | "duplicates" | "warnings";
-
-interface WarningGroup {
-  code: RowWarningCode;
-  label: string;
-  refs: string[];
-}
-
-const rejectedSort: GridSort = { key: "line", direction: "asc" };
-const warningsSort: GridSort = { key: "count", direction: "desc" };
-
-const rejectedColumns: DataGridColumn<RejectedRow>[] = [
-  { key: "line", label: "Ligne du fichier", width: 96, kind: "number", value: r => r.line },
-  { key: "ref", label: "Réf.", width: 112, kind: "ref", value: r => r.externalRef },
-  { key: "title", label: "Titre", width: 320, kind: "text", value: r => r.title },
-  {
-    key: "problem",
-    label: "Problème",
-    width: 360,
-    kind: "text",
-    value: r => problemText(r),
-    render: r => <span className="text-destructive">{problemText(r)}</span>,
-  },
-];
-
-function problemText(r: RejectedRow): string {
-  return r.errors.map(e => rowErrorLabels[e]).join(" ; ") + (r.firstLine ? ` (voir ligne ${r.firstLine})` : "");
-}
-
-const countSegment = (n: number, one: string, many: string) => (n > 0 ? plural(n, one, many) : null);
+// ---------- Étape 2 : analyse ----------
 
 function ReviewStep({
   challengeId,
@@ -277,69 +228,26 @@ function ReviewStep({
   onDone: (result: ImportResult, imported: number) => void;
 }) {
   const { client } = useAuth();
-  const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set());
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<TabId>(analysis.ideas.length > 0 ? "ideas" : "rejected");
-  const [ideasQuery, setIdeasQuery] = useState<GridQuery>(emptyGridQuery);
-  const [rejectedQuery, setRejectedQuery] = useState<GridQuery>(emptyGridQuery);
-  const [warningsQuery, setWarningsQuery] = useState<GridQuery>(emptyGridQuery);
 
-  const rows = useMemo(() => analysis.ideas.map(fromAnalyzedIdea), [analysis]);
+  const byRef = useMemo(() => new Map(analysis.ideas.map(i => [i.externalRef, i])), [analysis]);
   const keptCount = analysis.ideas.length - excluded.size;
-  const warningGroups = useMemo<WarningGroup[]>(() => {
+  const warningGroups = useMemo(() => {
     const groups = new Map<RowWarningCode, string[]>();
     for (const idea of analysis.ideas)
       for (const w of idea.warnings) groups.set(w, [...(groups.get(w) ?? []), idea.externalRef]);
-    return [...groups].map(([code, refs]) => ({ code, label: rowWarningLabels[code], refs }));
+    return [...groups].sort((a, b) => b[1].length - a[1].length);
   }, [analysis]);
 
-  const setChecked = (refs: readonly string[], checked: boolean) =>
+  const toggle = (ref: string) =>
     setExcluded(prev => {
       const next = new Set(prev);
-      for (const ref of refs) {
-        if (checked) next.delete(ref);
-        else next.add(ref);
-      }
+      if (next.has(ref)) next.delete(ref);
+      else next.add(ref);
       return next;
     });
-  const toggle = (ref: string) => setChecked([ref], excluded.has(ref));
-
-  const checkColumn: CheckColumn<IdeaGridRow> = {
-    label: "Importer",
-    headerLabel: "Tout importer (lignes affichées)",
-    width: 40,
-    isChecked: r => !excluded.has(r.ref),
-    onToggle: r => toggle(r.ref),
-    onToggleAll: (shown, checked) => setChecked(shown.map(r => r.ref), checked),
-    ariaLabel: r => `Importer ${r.ref} — ${r.title}`,
-  };
-
-  const showWarning = (code: RowWarningCode) => {
-    setIdeasQuery(q => ({ ...q, search: "", filters: { flags: new Set([code]) } }));
-    setTab("ideas");
-  };
-
-  const warningColumns: DataGridColumn<WarningGroup>[] = [
-    { key: "label", label: "Point d'attention", width: 320, kind: "text", value: g => g.label },
-    { key: "count", label: "Idées", width: 72, kind: "number", value: g => g.refs.length },
-    { key: "refs", label: "Réf. concernées", width: 360, kind: "text", value: g => g.refs.join(", ") },
-    {
-      key: "action",
-      label: "Action",
-      width: 140,
-      kind: "text",
-      sortable: false,
-      searchable: false,
-      value: () => null,
-      text: () => "Afficher ces idées",
-      render: g => (
-        <Button variant="link" tabIndex={-1} onClick={() => showWarning(g.code)}>
-          Afficher ces idées
-        </Button>
-      ),
-    },
-  ];
 
   const save = async () => {
     if (saving || keptCount === 0) return;
@@ -360,297 +268,273 @@ function ReviewStep({
     onDone(result.value, payload.ideas.length);
   };
 
-  const linesRead = analysis.rowsRead + analysis.emptyLines.length;
-  const summary = `${plural(keptCount, "idée sera importée", "idées seront importées")} sur ${formatNumber(analysis.rowsRead)}`;
-  const fileLine = [
-    `Fichier : ${fileName}`,
-    countSegment(linesRead, "ligne lue", "lignes lues"),
-    analysis.emptyLines.length > 0
-      ? `${plural(analysis.emptyLines.length, "ligne vide ignorée", "lignes vides ignorées")} (${analysis.emptyLines.length > 1 ? "lignes" : "ligne"} ${analysis.emptyLines.join(", ")})`
-      : null,
-    analysis.ignoredColumns.length > 0 ? `Colonnes non importées : ${analysis.ignoredColumns.join(", ")}` : null,
-  ].filter((s): s is string => s !== null);
-
-  // Nombre d'idées portant au moins un point d'attention.
-  const warningCount = analysis.ideas.filter(i => i.warnings.length > 0).length;
-  const tabLabel = (label: string, count: number, tone: "error" | "warning" | null) => (
-    <>
-      {count > 0 && tone === "error" && <CircleAlert className="size-3.5 text-destructive" aria-hidden />}
-      {count > 0 && tone === "warning" && <TriangleAlert className="size-3.5 text-warning" aria-hidden />}
-      {label}{" "}
-      <span
-        className={cn("tabular-nums", count > 0 && tone === "error" && "text-destructive", count > 0 && tone === "warning" && "text-warning")}
-      >
-        ({formatNumber(count)})
-      </span>
-    </>
-  );
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <p className="px-4 pb-2 text-xs text-muted-foreground">{fileLine.join(" · ")}</p>
+    <div className="space-y-8 pb-24">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <FileSpreadsheet className="size-4" aria-hidden />
+        <span className="truncate">{fileName}</span>
+      </div>
+
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat label="Idées lues" value={analysis.rowsRead} />
+        <Stat label="Prêtes à importer" value={analysis.ideas.length} tone="success" />
+        <Stat label="Lignes rejetées" value={analysis.rejected.length} tone={analysis.rejected.length ? "error" : undefined} />
+        <Stat
+          label="Doublons possibles"
+          value={analysis.duplicates.length}
+          tone={analysis.duplicates.length ? "warning" : undefined}
+        />
+      </dl>
+
+      {(analysis.emptyLines.length > 0 || analysis.ignoredColumns.length > 0) && (
+        <Alert tone="info">
+          {analysis.emptyLines.length > 0 && (
+            <p>
+              {analysis.emptyLines.length} ligne{analysis.emptyLines.length > 1 ? "s" : ""} vide
+              {analysis.emptyLines.length > 1 ? "s" : ""} ignorée{analysis.emptyLines.length > 1 ? "s" : ""} (ligne
+              {analysis.emptyLines.length > 1 ? "s" : ""} {analysis.emptyLines.join(", ")}).
+            </p>
+          )}
+          {analysis.ignoredColumns.length > 0 && (
+            <p>Colonnes non reconnues, non importées : {analysis.ignoredColumns.join(", ")}.</p>
+          )}
+        </Alert>
+      )}
 
       {analysis.rejected.length > 0 && (
-        <Alert
-          tone="error"
-          className="mx-4 mb-2"
-          action={
-            <Button variant="link" onClick={() => setTab("rejected")}>
-              Voir les lignes rejetées
-            </Button>
-          }
+        <Section
+          icon={<CircleAlert className="size-4 text-destructive" aria-hidden />}
+          title="Lignes qui ne seront pas importées"
+          subtitle="Corrigez-les dans le fichier puis réimportez-le : les idées déjà enregistrées seront mises à jour, pas dupliquées."
         >
-          {plural(analysis.rejected.length, "ligne ne sera pas importée", "lignes ne seront pas importées")}. Corrigez-les
-          dans le fichier puis réimportez-le : les idées déjà enregistrées seront mises à jour, pas dupliquées.
-        </Alert>
+          <ul className="divide-y rounded-lg border bg-background text-sm">
+            {analysis.rejected.map(r => (
+              <li key={r.line} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3">
+                <span className="font-mono text-xs text-muted-foreground">Ligne {r.line}</span>
+                <span className="font-medium">{r.externalRef ?? "Sans identifiant"}</span>
+                {r.title && <span className="truncate text-muted-foreground">« {r.title} »</span>}
+                <span className="text-destructive">
+                  {r.errors.map(e => rowErrorLabels[e]).join(" · ")}
+                  {r.firstLine ? ` (ligne ${r.firstLine})` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Section>
       )}
 
-      <Tabs
-        label="Résultat de la vérification"
-        value={tab}
-        onChange={id => setTab(id as TabId)}
-        className="mx-4"
-        panelClassName="mx-4 mb-3 flex min-h-0 flex-1 flex-col"
-        items={[
-          { id: "ideas", label: tabLabel("Idées à importer", analysis.ideas.length, null), disabled: analysis.ideas.length === 0 },
-          { id: "rejected", label: tabLabel("Lignes rejetées", analysis.rejected.length, "error"), disabled: analysis.rejected.length === 0 },
-          {
-            id: "duplicates",
-            label: tabLabel("Doublons possibles", analysis.duplicates.length, "warning"),
-            disabled: analysis.duplicates.length === 0,
-          },
-          { id: "warnings", label: tabLabel("Points d'attention", warningCount, "warning"), disabled: warningCount === 0 },
-        ]}
+      {analysis.duplicates.length > 0 && (
+        <Section
+          icon={<Copy className="size-4 text-amber-600" aria-hidden />}
+          title="Doublons possibles"
+          subtitle="Rien n'est fusionné automatiquement. Vous pouvez écarter une idée maintenant ; sinon, les paires seront à trancher à l'étape « Doublons »."
+        >
+          <ul className="space-y-3">
+            {analysis.duplicates.map(d => (
+              <li key={`${d.refA}-${d.refB}`} className="rounded-lg border bg-background p-4">
+                <p className="mb-3">
+                  <span
+                    className={cn(
+                      "rounded-full px-2.5 py-0.5 text-xs font-medium",
+                      d.kind === "exact" ? "bg-red-50 text-red-700 ring-1 ring-red-200" : "bg-amber-50 text-amber-800 ring-1 ring-amber-200",
+                    )}
+                  >
+                    {d.kind === "exact" ? "Contenu identique" : `Formulation proche · ${Math.round(d.similarity * 100)} %`}
+                  </span>
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[d.refA, d.refB].map(ref => {
+                    const idea = byRef.get(ref)!;
+                    const isExcluded = excluded.has(ref);
+                    return (
+                      <div key={ref} className={cn("space-y-2 rounded-md bg-muted/50 p-3", isExcluded && "opacity-50")}>
+                        <p className="text-xs text-muted-foreground">
+                          {ref} · {[idea.direction, idea.site].filter(Boolean).join(", ") || "—"}
+                        </p>
+                        <p className="text-sm font-medium">{idea.title}</p>
+                        <p className="line-clamp-3 text-sm text-muted-foreground">{idea.description}</p>
+                        <Button variant="ghost" size="sm" className="-ml-2 h-8" onClick={() => toggle(ref)}>
+                          {isExcluded ? "Réintégrer cette idée" : "Ne pas importer celle-ci"}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {warningGroups.length > 0 && (
+        <Section
+          icon={<TriangleAlert className="size-4 text-amber-600" aria-hidden />}
+          title="Points d'attention"
+          subtitle="Ces idées seront importées ; les points sont conservés pour la suite de l'évaluation."
+        >
+          <ul className="divide-y rounded-lg border bg-background text-sm">
+            {warningGroups.map(([code, refs]) => (
+              <li key={code} className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3">
+                <span>{rowWarningLabels[code]}</span>
+                <span className="text-muted-foreground">
+                  {refs.length} idée{refs.length > 1 ? "s" : ""} : {refs.join(", ")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      <Section
+        icon={<CircleCheck className="size-4 text-emerald-600" aria-hidden />}
+        title="Idées à importer"
+        subtitle="Décochez une idée pour ne pas l'importer."
       >
-        {tab === "ideas" && (
-          <DataGrid<IdeaGridRow>
-            className="border-t-0"
-            label="Idées à importer"
-            rows={rows}
-            columns={ideaColumns}
-            rowKey={r => r.ref}
-            rowLabel={r => r.ref}
-            query={ideasQuery}
-            onQueryChange={setIdeasQuery}
-            defaultSort={ideaDefaultSort}
-            checkColumn={checkColumn}
-            rowClassName={r => (excluded.has(r.ref) ? "text-muted-foreground" : undefined)}
-            searchLabel="Rechercher dans les idées"
-            countLabel={n => plural(n, "idée", "idées")}
-            shownLabel={n => plural(n, "affichée", "affichées")}
-            noMatchLabel="Aucune idée ne correspond à la recherche ou aux filtres."
-            emptyBody={<p>Aucune ligne du fichier ne peut être importée.</p>}
-            statusRight={() => summary}
-          />
-        )}
-        {tab === "rejected" && (
-          <DataGrid<RejectedRow>
-            className="border-t-0"
-            label="Lignes rejetées"
-            rows={analysis.rejected}
-            columns={rejectedColumns}
-            rowKey={r => String(r.line)}
-            rowLabel={r => `Ligne ${r.line}`}
-            query={rejectedQuery}
-            onQueryChange={setRejectedQuery}
-            defaultSort={rejectedSort}
-            searchLabel="Rechercher dans les lignes rejetées"
-            countLabel={n => plural(n, "ligne rejetée", "lignes rejetées")}
-            shownLabel={n => plural(n, "affichée", "affichées")}
-            noMatchLabel="Aucune ligne ne correspond à la recherche."
-            emptyBody={<p>Aucune ligne rejetée.</p>}
-          />
-        )}
-        {tab === "duplicates" && <DuplicatesTable analysis={analysis} excluded={excluded} onToggle={toggle} />}
-        {tab === "warnings" && (
-          <>
-            <p className="py-2 text-xs text-muted-foreground">
-              Ces idées seront importées ; les points sont conservés pour la suite de l'évaluation.
-            </p>
-            <DataGrid<WarningGroup>
-              label="Points d'attention"
-              rows={warningGroups}
-              columns={warningColumns}
-              rowKey={g => g.code}
-              rowLabel={g => plural(g.refs.length, "idée", "idées")}
-              query={warningsQuery}
-              onQueryChange={setWarningsQuery}
-              defaultSort={warningsSort}
-              onOpenRow={g => showWarning(g.code)}
-              searchLabel="Rechercher dans les points d'attention"
-              countLabel={n => plural(n, "point d'attention", "points d'attention")}
-              shownLabel={n => plural(n, "affiché", "affichés")}
-              noMatchLabel="Aucun point d'attention ne correspond à la recherche."
-              emptyBody={<p>Aucun point d'attention.</p>}
-            />
-          </>
-        )}
-      </Tabs>
+        <IdeaPreviewTable ideas={analysis.ideas} excluded={excluded} onToggle={toggle} />
+      </Section>
 
-      {error && (
-        <Alert tone="error" className="mx-4 mb-2">
-          {error}
-        </Alert>
-      )}
+      {error && <Alert tone="error">{error}</Alert>}
 
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-muted px-4 py-2">
-        <Button variant="outline" onClick={onBack} disabled={saving}>
-          Changer de fichier
-        </Button>
-        <span className="ml-auto text-ui text-muted-foreground">{summary}</span>
-        <Button onClick={save} disabled={saving || keptCount === 0}>
-          {saving && <LoaderCircle className="size-4 animate-spin" aria-hidden />}
-          {saving ? "Enregistrement…" : `Importer ${plural(keptCount, "idée", "idées")}`}
-        </Button>
+      <div className="fixed inset-x-0 bottom-0 z-10 border-t bg-background/95 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <Button variant="ghost" onClick={onBack} disabled={saving}>
+            <ArrowLeft className="size-4" aria-hidden />
+            Changer de fichier
+          </Button>
+          <Button onClick={save} disabled={saving || keptCount === 0}>
+            {saving && <LoaderCircle className="size-4 animate-spin" aria-hidden />}
+            {saving ? "Enregistrement…" : `Importer ${keptCount} idée${keptCount > 1 ? "s" : ""}`}
+          </Button>
+        </div>
       </div>
     </div>
   );
 }
 
-const cell = "h-7 max-w-0 truncate border-r border-b border-grid px-2 align-middle whitespace-nowrap";
-const headCell = "sticky top-0 z-10 h-7 border-r border-b border-border bg-grid-header px-2 text-left text-xs font-semibold";
-
-/** Paires de doublons possibles : deux lignes par paire, case « Importer » synchronisée avec l'onglet principal. */
-function DuplicatesTable({
-  analysis,
-  excluded,
-  onToggle,
-}: {
-  analysis: ImportAnalysis;
-  excluded: ReadonlySet<string>;
-  onToggle: (ref: string) => void;
-}) {
-  const byRef = useMemo(() => new Map(analysis.ideas.map(i => [i.externalRef, i])), [analysis]);
-  const widths = [40, 96, 240, 360, 140, 120];
+function Stat({ label, value, tone }: { label: string; value: number; tone?: "success" | "error" | "warning" }) {
   return (
-    <>
-      <p className="py-2 text-xs text-muted-foreground">
-        Rien n'est fusionné automatiquement. Décochez une idée pour ne pas l'importer ; sinon, la paire sera à trancher à
-        l'étape Doublons.
-      </p>
-      <div className="min-h-0 flex-1 overflow-auto border border-border bg-background">
-        <table className="w-max min-w-full table-fixed border-separate border-spacing-0 text-ui">
-          <colgroup>
-            {widths.map((w, i) => (
-              <col key={i} style={{ width: w }} />
-            ))}
-          </colgroup>
-          <thead>
-            <tr>
-              <th scope="col" className={headCell}>
-                <span className="sr-only">Importer</span>
-              </th>
-              <th scope="col" className={headCell}>
-                Réf.
-              </th>
-              <th scope="col" className={headCell}>
-                Titre
-              </th>
-              <th scope="col" className={headCell}>
-                Extrait de la description
-              </th>
-              <th scope="col" className={headCell}>
-                Direction
-              </th>
-              <th scope="col" className={headCell}>
-                Site
-              </th>
-            </tr>
-          </thead>
-          {analysis.duplicates.map((d, i) => (
-            <tbody key={`${d.refA}-${d.refB}`}>
-              <tr>
-                <th scope="colgroup" colSpan={widths.length} className="h-7 border-b border-grid bg-muted px-2 text-left text-xs font-semibold">
-                  Paire {i + 1} ·{" "}
-                  {d.kind === "exact" ? "Contenu identique" : `Formulation proche (${Math.round(d.similarity * 100)} %)`}
-                </th>
-              </tr>
-              {[d.refA, d.refB].map(ref => {
-                const idea = byRef.get(ref);
-                if (!idea) return null;
-                const isExcluded = excluded.has(ref);
-                return (
-                  <tr key={ref} className={cn("hover:bg-row-hover", isExcluded && "text-muted-foreground")}>
-                    <td className={cn(cell, "text-center")}>
-                      <input
-                        type="checkbox"
-                        className="size-3.5 align-middle"
-                        checked={!isExcluded}
-                        onChange={() => onToggle(ref)}
-                        aria-label={`Importer ${ref} — ${idea.title}`}
-                      />
-                    </td>
-                    <td className={cell}>{ref}</td>
-                    <td className={cell} title={idea.title}>
-                      {idea.title}
-                    </td>
-                    <td className={cn(cell, "py-1 align-top whitespace-normal")}>
-                      <span className="line-clamp-3">{idea.description}</span>
-                    </td>
-                    <EmptyableCell value={idea.direction} />
-                    <EmptyableCell value={idea.site} />
-                  </tr>
-                );
-              })}
-            </tbody>
-          ))}
-        </table>
-      </div>
-    </>
+    <div className="rounded-xl border bg-background p-4">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd
+        className={cn(
+          "mt-1 text-2xl font-semibold tabular-nums",
+          tone === "success" && "text-emerald-700",
+          tone === "error" && "text-destructive",
+          tone === "warning" && "text-amber-700",
+        )}
+      >
+        {value}
+      </dd>
+    </div>
   );
 }
 
-function EmptyableCell({ value }: { value: string | null }): ReactNode {
+function Section({
+  icon,
+  title,
+  subtitle,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
   return (
-    <td className={cell} title={value ?? undefined}>
-      {value ?? <span className="sr-only">Vide</span>}
-    </td>
+    <section className="space-y-3">
+      <div className="space-y-1">
+        <h2 className="flex items-center gap-2 font-medium">
+          {icon}
+          {title}
+        </h2>
+        <p className="text-sm text-muted-foreground text-pretty">{subtitle}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function IdeaPreviewTable({
+  ideas,
+  excluded,
+  onToggle,
+}: {
+  ideas: AnalyzedIdea[];
+  excluded: Set<string>;
+  onToggle: (ref: string) => void;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-lg border bg-background">
+      <table className="w-full min-w-[720px] text-sm">
+        <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+          <tr>
+            <th className="w-10 px-4 py-2.5">
+              <span className="sr-only">Importer</span>
+            </th>
+            <th className="px-2 py-2.5 font-medium">Idée</th>
+            <th className="px-2 py-2.5 font-medium">Direction · site</th>
+            <th className="px-2 py-2.5 font-medium">Thème</th>
+            <th className="px-4 py-2.5 text-right font-medium">Budget</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {ideas.map(i => {
+            const isExcluded = excluded.has(i.externalRef);
+            return (
+              <tr key={i.externalRef} className={cn(isExcluded && "bg-muted/40 text-muted-foreground")}>
+                <td className="px-4 py-2.5 align-top">
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-zinc-900"
+                    checked={!isExcluded}
+                    onChange={() => onToggle(i.externalRef)}
+                    aria-label={`Importer ${i.externalRef} — ${i.title}`}
+                  />
+                </td>
+                <td className="px-2 py-2.5 align-top">
+                  <p className={cn("font-medium", isExcluded && "line-through")}>{i.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {i.externalRef}
+                    {i.warnings.length > 0 && (
+                      <span className="text-amber-700"> · {i.warnings.map(w => rowWarningLabels[w]).join(", ")}</span>
+                    )}
+                  </p>
+                </td>
+                <td className="px-2 py-2.5 align-top">{[i.direction, i.site].filter(Boolean).join(" · ") || "—"}</td>
+                <td className="px-2 py-2.5 align-top">{i.theme ?? "—"}</td>
+                <td className="px-4 py-2.5 text-right align-top tabular-nums" title={i.budgetRaw ?? undefined}>
+                  {i.budgetEur !== null ? euro.format(i.budgetEur) : <span className="text-muted-foreground">—</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 // ---------- Étape 3 : terminé ----------
 
-function DoneStep({
-  challenge,
-  result,
-  imported,
-  onAgain,
-}: {
-  challenge: Challenge;
-  result: ImportResult;
-  imported: number;
-  onAgain: () => void;
-}) {
-  const lines: [string, number][] = [
-    ["Nouvelles idées", result.inserted],
-    ["Idées mises à jour", result.updated],
-    ...(result.duplicates_added > 0 ? [["Paires de doublons à examiner", result.duplicates_added] as [string, number]] : []),
-  ];
+function DoneStep({ challengeId, result, imported }: { challengeId: string; result: ImportResult; imported: number }) {
   return (
-    <div className="max-w-2xl space-y-3 px-4 pb-4">
-      <Alert tone="success" title={plural(imported, "idée enregistrée", "idées enregistrées")}>
-        Le fichier a été importé dans le challenge {challenge.title}.
-      </Alert>
-      <table className="border-separate border-spacing-0 text-ui">
-        <tbody>
-          {lines.map(([label, n]) => (
-            <tr key={label}>
-              <th scope="row" className="h-7 border-b border-grid pr-6 text-left font-normal">
-                {label}
-              </th>
-              <td className="h-7 border-b border-grid text-right tabular-nums">{formatNumber(n)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="flex gap-2">
-        <Button asChild>
-          <Link to={`/challenges/${challenge.id}`}>Voir les idées</Link>
-        </Button>
-        <Button variant="outline" onClick={onAgain}>
-          Importer un autre fichier
-        </Button>
-      </div>
+    <div className="flex flex-col items-center rounded-xl border bg-background px-6 py-14 text-center">
+      <span className="flex size-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+        <CircleCheck className="size-6" aria-hidden />
+      </span>
+      <h2 className="mt-4 text-lg font-semibold">
+        {imported} idée{imported > 1 ? "s" : ""} enregistrée{imported > 1 ? "s" : ""}
+      </h2>
+      <p className="mt-1 max-w-md text-sm text-muted-foreground text-pretty">
+        {result.inserted} nouvelle{result.inserted > 1 ? "s" : ""}, {result.updated} mise
+        {result.updated > 1 ? "s" : ""} à jour
+        {result.duplicates_added > 0 &&
+          ` · ${result.duplicates_added} paire${result.duplicates_added > 1 ? "s" : ""} de doublons à examiner`}
+        .
+      </p>
+      <Button asChild className="mt-6">
+        <Link to={`/challenges/${challengeId}`}>Voir les idées</Link>
+      </Button>
     </div>
   );
 }

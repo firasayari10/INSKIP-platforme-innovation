@@ -1,4 +1,4 @@
-import { LoaderCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, LoaderCircle, MailCheck } from "lucide-react";
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { Alert } from "@/components/Alert";
@@ -78,15 +78,17 @@ function EmailStep({ onSubmit }: { onSubmit: (email: string) => Promise<string |
   };
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Connexion</h1>
-      <p className="text-sm text-muted-foreground">
-        Saisissez votre adresse e-mail professionnelle. Vous recevrez un lien et un code de connexion ; aucun mot de
-        passe n'est nécessaire.
-      </p>
+    <div className="space-y-8">
+      <header className="space-y-2">
+        <h2 className="text-2xl font-semibold tracking-tight">Connexion</h2>
+        <p className="text-sm text-muted-foreground text-pretty">
+          Saisissez votre adresse e-mail professionnelle. Nous vous envoyons un lien et un code pour vous connecter,
+          sans mot de passe.
+        </p>
+      </header>
 
-      <form onSubmit={handleSubmit} noValidate className="space-y-4">
-        <div className="space-y-1">
+      <form onSubmit={handleSubmit} noValidate className="space-y-5">
+        <div className="space-y-2">
           <Label htmlFor={`${id}-email`}>Adresse e-mail</Label>
           <Input
             id={`${id}-email`}
@@ -100,10 +102,10 @@ function EmailStep({ onSubmit }: { onSubmit: (email: string) => Promise<string |
             aria-invalid={fieldError ? true : undefined}
             aria-describedby={fieldError ? `${id}-email-error` : undefined}
             disabled={pending}
-            className="h-9"
+            className="h-11"
           />
           {fieldError && (
-            <p id={`${id}-email-error`} className="text-xs text-destructive">
+            <p id={`${id}-email-error`} className="text-sm text-destructive">
               {fieldError}
             </p>
           )}
@@ -111,14 +113,17 @@ function EmailStep({ onSubmit }: { onSubmit: (email: string) => Promise<string |
 
         {formError && <Alert tone="error">{formError}</Alert>}
 
-        <Button type="submit" size="lg" className="w-full" disabled={pending}>
+        <Button type="submit" className="h-11 w-full" disabled={pending}>
           {pending ? (
             <>
               <LoaderCircle className="size-4 animate-spin" aria-hidden />
               Envoi en cours…
             </>
           ) : (
-            "Recevoir le lien de connexion"
+            <>
+              Recevoir mon lien de connexion
+              <ArrowRight className="size-4" aria-hidden />
+            </>
           )}
         </Button>
       </form>
@@ -186,15 +191,22 @@ function CodeStep({
   };
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Saisissez le code reçu</h1>
-      <p className="text-sm text-muted-foreground">
-        Si l'adresse <span className="font-semibold break-all text-foreground">{email}</span> est autorisée, un e-mail
-        vient de lui être envoyé. Cliquez sur le lien qu'il contient ou saisissez le code ci-dessous.
-      </p>
+    <div className="space-y-8">
+      <header className="space-y-4">
+        <span className="flex size-11 items-center justify-center rounded-full bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+          <MailCheck className="size-5" aria-hidden />
+        </span>
+        <div className="space-y-2">
+          <h2 className="text-2xl font-semibold tracking-tight">Vérifiez votre boîte mail</h2>
+          <p className="text-sm text-muted-foreground text-pretty">
+            Si l'adresse <span className="font-medium text-foreground break-all">{email}</span> est autorisée, vous
+            allez recevoir un e-mail. Cliquez sur le lien qu'il contient ou saisissez le code ci-dessous.
+          </p>
+        </div>
+      </header>
 
-      <form onSubmit={handleVerify} noValidate className="space-y-4">
-        <div className="space-y-1">
+      <form onSubmit={handleVerify} noValidate className="space-y-5">
+        <div className="space-y-2">
           <Label htmlFor={`${id}-code`}>Code reçu par e-mail</Label>
           <Input
             id={`${id}-code`}
@@ -202,18 +214,19 @@ function CodeStep({
             autoComplete="one-time-code"
             autoFocus
             maxLength={14}
+            placeholder="••••••••"
             value={code}
             onChange={e => setCode(e.target.value)}
             aria-invalid={error ? true : undefined}
             disabled={pending !== null}
-            className="h-9 font-mono text-base tracking-[0.3em] md:text-base"
+            className="h-11 text-center font-mono text-lg tracking-[0.4em] placeholder:tracking-[0.4em]"
           />
         </div>
 
         {error && <Alert tone="error">{error}</Alert>}
         {info && <Alert tone="success">{info}</Alert>}
 
-        <Button type="submit" size="lg" className="w-full" disabled={pending !== null}>
+        <Button type="submit" className="h-11 w-full" disabled={pending !== null}>
           {pending === "verify" ? (
             <>
               <LoaderCircle className="size-4 animate-spin" aria-hidden />
@@ -225,26 +238,32 @@ function CodeStep({
         </Button>
       </form>
 
-      <div className="flex justify-between gap-3 border-t border-border pt-3 text-ui">
-        <Button type="button" variant="link" onClick={onChangeEmail}>
-          Changer d'adresse
-        </Button>
-        <Button
+      <div className="flex flex-col gap-3 border-t pt-6 text-sm sm:flex-row sm:items-center sm:justify-between">
+        <button
           type="button"
-          variant="link"
+          onClick={onChangeEmail}
+          className="inline-flex items-center gap-1.5 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          <ArrowLeft className="size-4" aria-hidden />
+          Changer d'adresse
+        </button>
+        <button
+          type="button"
           onClick={handleResend}
           disabled={wait > 0 || pending !== null}
-          className="disabled:text-muted-foreground disabled:no-underline disabled:opacity-100"
+          className="text-left font-medium text-foreground underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:font-normal disabled:text-muted-foreground disabled:no-underline sm:text-right"
         >
           {pending === "resend"
             ? "Envoi…"
             : wait > 0
               ? `Renvoyer l'e-mail (${wait} s)`
               : "Renvoyer l'e-mail"}
-        </Button>
+        </button>
       </div>
 
-      <p className="text-xs text-muted-foreground">Rien reçu après quelques minutes ? Vérifiez vos courriers indésirables.</p>
+      <p className="text-xs text-muted-foreground">
+        Rien reçu après quelques minutes ? Pensez à vérifier vos courriers indésirables.
+      </p>
     </div>
   );
 }
