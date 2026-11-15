@@ -1,0 +1,6 @@
+* text=auto eol=lf
+# Fixtures : conservées octet pour octet (BOM, CRLF) pour tester l'import réel
+tests/fixtures/** -text
+*.png binary
+*.jpg binary
+*.xlsx binary
