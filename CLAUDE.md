@@ -59,7 +59,7 @@ Toute demande hors V1 → section V2 du README, **pas d'implémentation sans val
 |---|---|---|
 | Outillage | **Bun 1.2** (install, scripts, `bun test`) | Un outil pour build et tests |
 | Front | **React 19, TypeScript strict**, Tailwind v4, **shadcn/ui** (Radix) | Accessible par défaut, cohérent |
-| Données / Auth | **Supabase** : Postgres, Auth lien magique, **RLS** | Pas de backend à maintenir, sécurité au niveau des lignes |
+| Données / Auth | **Supabase** (région `eu-north-1`, UE) : Postgres, Auth sans mot de passe, **RLS** | Pas de backend à maintenir, sécurité au niveau des lignes, données dans l'UE |
 | Serveur | **Vercel Functions** (`api/`, TS) | Seul lieu de la clé IA ; même dépôt, même déploiement |
 | IA | **API Claude**, modèle via `ANTHROPIC_MODEL` | Sorties structurées, français de qualité |
 | Hébergement | **Vercel** : `build.ts` → `dist/` + `api/` | Une URL, previews par branche |
@@ -182,7 +182,7 @@ Chaque tâche suit cette boucle. On ne saute pas d'étape ; on peut la faire vit
 | 3 | **Planifier** | Découpage, cas limites, impacts sécurité/données, tests prévus. **Mode plan** si > 3 fichiers, migration, ou sécurité | Plan validé par l'humain |
 | 4 | **Tester d'abord** (domaine) | Écrire les tests qui décrivent le comportement, les voir échouer | Tests rouges |
 | 5 | **Implémenter** | Diff minimal, dans le style existant, sans refactor opportuniste | Code |
-| 6 | **Vérifier** | `bunx tsc --noEmit` + `bun test` ; pour l'UI, lancer l'app et parcourir le chemin réel, états vide/erreur compris | Sorties réelles |
+| 6 | **Vérifier** | `bun run typecheck` + `bun test` ; pour l'UI, lancer l'app et parcourir le chemin réel, états vide/erreur compris | Sorties réelles |
 | 7 | **Relire** | Auto-revue du diff avec la checklist §7 ; `code-reviewer` pour toute feature | Corrections |
 | 8 | **Documenter** | README (hypothèse, décision), ADR si structurant, ce fichier si une règle change | Docs à jour |
 | 9 | **Commit** | Un commit atomique, sur demande uniquement | Historique lisible |
@@ -261,7 +261,7 @@ une dizaine d'idées fictives annotées avec une fourchette attendue par critèr
 Toute modification du prompt incrémente `prompt_version` et passe l'éval avant fusion.
 
 **CI** (GitHub Actions, chaque push et PR) : `bun install --frozen-lockfile` →
-`bunx tsc --noEmit` → `bun test`. CI rouge = pas de fusion.
+`bun run typecheck` → `bun test` → `bun run build`. CI rouge = pas de fusion.
 
 ---
 
@@ -357,9 +357,11 @@ distante.
 ## 13. Git et commandes
 
 - Branche par feature (`feat/import`, `fix/notation-bornes`), PR vers `main`, CI verte requise.
-- Conventional Commits en français, à l'impératif : `feat(import): détecter le séparateur des
-  exports Excel FR`, `test(doublons): couvrir les reformulations`. Types : `feat`, `fix`,
-  `test`, `refactor`, `docs`, `chore`, `ci`.
+- **Messages de commit simples, entièrement en français** : une phrase courte au présent, sans
+  préfixe anglais (`feat:`, `fix:`…). Exemples : « Ajoute l'import des idées », « Corrige le
+  libellé du code de connexion », « Teste la détection des doublons ».
+- **Jamais de commit ni de push sans accord explicite** : quand un changement est prêt et
+  vérifié, proposer le message et demander. Un accord vaut pour ce commit seulement.
 - Un commit = une intention, qui compile et passe les tests.
 - Migrations : jamais modifiées une fois appliquées ; on en ajoute une nouvelle.
 
