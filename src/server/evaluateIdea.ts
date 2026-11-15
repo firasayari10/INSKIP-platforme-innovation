@@ -22,12 +22,40 @@ import {
   type IdeaForScoring,
   type SynthesisOutput,
 } from "../domain/scoring";
+import { agentRequestKey, type AgentCallParams } from "../domain/cache";
+import { sha256Hex } from "../lib/hash";
+import type { AgentCache, AgentRole } from "./agentCache";
 import type { AgentCaller, AgentError, AgentUsage } from "./openrouter";
 
 /**
  * Orchestration des agents pour une idée : analyste → 4 consultants en parallèle → associé.
  * Le transport est injecté (`call`) : testable sans réseau.
+ * Chaque appel consulte d'abord le cache par agent (ADR 0003 §1) : une requête strictement
+ * identique déjà traitée dans le même challenge n'est pas refacturée, et une évaluation
+ * interrompue reprend sans rappeler les agents déjà terminés.
  */
+
+/** Paramètres d'appel communs (hors modèle et recherche web, propres à chaque agent). */
+export type CallParams = Omit<AgentCallParams, "model" | "web">;
+
+export interface EvaluationOptions {
+  cache?: AgentCache;
+  /** `false` pour « Relancer l'évaluation » : pas de lecture du cache (l'écriture reste). */
+  useCache?: boolean;
+  params?: CallParams;
+}
+
+const DEFAULT_PARAMS: CallParams = { provider: "inconnu", temperature: 0.2, maxTokens: 4096, thinking: false, webCount: 5 };
+
+type Usage = AgentUsage & { calls: number; cacheHits: number };
+
+interface CallContext {
+  call: AgentCaller;
+  usage: Usage;
+  cache?: AgentCache;
+  useCache: boolean;
+  params: CallParams;
+}
 
 export interface AgentModels {
   analyste: string;
@@ -70,7 +98,7 @@ export interface EvaluationResult {
   assessments: AssessmentResult[];
   synthesis: SynthesisOutput;
   aiGlobalScore: number | null;
-  usage: AgentUsage & { calls: number };
+  usage: Usage;
   models: AgentModels;
   webSourcesCount: number;
 }
@@ -85,19 +113,38 @@ export interface EvaluationError {
 }
 
 async function callValidated<S extends z.ZodType>(
-  call: AgentCaller,
+  ctx: CallContext,
   agent: string,
+  role: AgentRole,
+  criterionKey: string | null,
   model: string,
   messages: ChatMessage[],
   schema: S,
   web: boolean,
-  usage: AgentUsage & { calls: number },
 ): Promise<Result<{ data: z.infer<S>; citations: Parameters<typeof checkSources>[1]; model: string }, EvaluationError>> {
+  const { call, usage } = ctx;
+  const jsonSchema = jsonSchemaOf(schema);
+  const fingerprint = await sha256Hex(
+    agentRequestKey({ schemaName: agent, schema: jsonSchema, messages }, { ...ctx.params, model, web }),
+  );
+
+  if (ctx.cache && ctx.useCache) {
+    const hit = await ctx.cache.get(fingerprint);
+    if (hit) {
+      const parsed = schema.safeParse(hit.output);
+      if (parsed.success) {
+        usage.cacheHits += 1;
+        return ok({ data: parsed.data, citations: hit.citations, model: hit.model });
+      }
+      console.error(`[agent-cache] cache_invalide ${fingerprint.slice(0, 8)} (${agent}) : entrée ignorée`);
+    }
+  }
+
   // Une seconde tentative est autorisée si la réponse ne respecte pas le schéma : on renvoie
   // l'erreur au modèle. On ne « répare » jamais une réponse en inventant une valeur.
   let conversation = messages;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const response = await call({ model, messages: conversation, schemaName: agent, schema: jsonSchemaOf(schema), web });
+    const response = await call({ model, messages: conversation, schemaName: agent, schema: jsonSchema, web });
     if (!response.ok) return err({ code: response.error.code, agent, detail: response.error.detail });
     usage.calls += 1;
     usage.promptTokens += response.value.usage.promptTokens;
@@ -105,7 +152,19 @@ async function callValidated<S extends z.ZodType>(
     usage.costUsd += response.value.usage.costUsd;
 
     const parsed = schema.safeParse(response.value.json);
-    if (parsed.success) return ok({ data: parsed.data, citations: response.value.citations, model: response.value.model });
+    if (parsed.success) {
+      await ctx.cache?.put({
+        agent: role,
+        criterionKey,
+        fingerprint,
+        promptVersion: PROMPT_VERSION,
+        model: response.value.model,
+        output: parsed.data,
+        citations: response.value.citations,
+        usage: { promptTokens: response.value.usage.promptTokens, completionTokens: response.value.usage.completionTokens },
+      });
+      return ok({ data: parsed.data, citations: response.value.citations, model: response.value.model });
+    }
     conversation = [
       ...messages,
       {
@@ -123,9 +182,17 @@ async function callValidated<S extends z.ZodType>(
 export async function evaluateIdea(
   input: EvaluationInput,
   call: AgentCaller,
+  options: EvaluationOptions = {},
 ): Promise<Result<EvaluationResult, EvaluationError>> {
   if (input.criteria.length === 0) return err({ code: "aucun_critere", agent: "orchestrateur", detail: "grille vide" });
-  const usage = { calls: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 };
+  const usage: Usage = { calls: 0, cacheHits: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 };
+  const ctx: CallContext = {
+    call,
+    usage,
+    cache: options.cache,
+    useCache: options.useCache ?? true,
+    params: options.params ?? DEFAULT_PARAMS,
+  };
 
   // 1. Analyste : estimation des données manquantes (uniquement si nécessaire).
   const missing = missingFields(input.idea);
@@ -133,13 +200,14 @@ export async function evaluateIdea(
   let estimates: EstimateResult[] = [];
   if (missing.length > 0) {
     const r = await callValidated(
-      call,
+      ctx,
       "analyste",
+      "analyste",
+      null,
       input.models.analyste,
       analystMessages(input.idea, input.challenge, missing, input.evaluatorNotes ?? null),
       analystOutputSchema,
       true,
-      usage,
     );
     if (!r.ok) return r;
     analyst = keepRequestedEstimates(r.value.data, missing);
@@ -163,13 +231,14 @@ export async function evaluateIdea(
   const results = await Promise.all(
     input.criteria.map(criterion =>
       callValidated(
-        call,
+        ctx,
         `consultant_${criterion.key}`,
+        "consultant",
+        criterion.key,
         input.models.consultant,
         criterionMessages(criterion, input.idea, input.challenge, analyst, input.evaluatorNotes ?? null),
         criterionOutputSchema,
         true,
-        usage,
       ).then(r => ({ criterion, r })),
     ),
   );
@@ -197,8 +266,10 @@ export async function evaluateIdea(
 
   // 3. Associé senior : synthèse et recommandation (sans recherche web, sans modifier les notes).
   const synthesis = await callValidated(
-    call,
+    ctx,
     "associe",
+    "associe",
+    null,
     input.models.associe,
     synthesisMessages(
       input.idea,
@@ -210,7 +281,6 @@ export async function evaluateIdea(
     ),
     synthesisOutputSchema,
     false,
-    usage,
   );
   if (!synthesis.ok) return synthesis;
 

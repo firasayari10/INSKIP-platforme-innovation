@@ -302,3 +302,80 @@ describe("client OpenRouter", () => {
     expect(() => extractJson("pas du json")).toThrow();
   });
 });
+
+// ---------- Cache par agent (ADR 0003 §1) ----------
+
+import { createMemoryAgentCache } from "@/server/agentCache";
+
+describe("cache par agent", () => {
+  test("une seconde évaluation identique ne rappelle aucun agent", async () => {
+    const cache = createMemoryAgentCache();
+    const first = fakeCaller();
+    await evaluateIdea(input, first.caller, { cache });
+    expect(first.calls).toHaveLength(6);
+    const second = fakeCaller();
+    const r = await evaluateIdea(input, second.caller, { cache });
+    expect(second.calls).toHaveLength(0);
+    expect(r.ok && r.value.usage).toMatchObject({ calls: 0, cacheHits: 6 });
+  });
+
+  test("si l'associé échoue, la relance ne rappelle que lui (reprise partielle)", async () => {
+    const cache = createMemoryAgentCache();
+    const failing = fakeCaller({ associe: async () => err({ code: "quota_depasse", detail: "429" }) });
+    expect((await evaluateIdea(input, failing.caller, { cache })).ok).toBe(false);
+    const retry = fakeCaller();
+    const r = await evaluateIdea(input, retry.caller, { cache });
+    expect(r.ok).toBe(true);
+    expect(retry.calls.map(c => c.schemaName)).toEqual(["associe"]);
+  });
+
+  test("un doublon exact (autre référence, même contenu) réutilise les analyses", async () => {
+    const cache = createMemoryAgentCache();
+    await evaluateIdea(input, fakeCaller().caller, { cache });
+    const duplicate = fakeCaller();
+    await evaluateIdea({ ...input, idea: { ...idea, external_ref: "IDEA-014" } }, duplicate.caller, { cache });
+    expect(duplicate.calls).toHaveLength(0);
+  });
+
+  test("changer le poids d'un critère ne relance que l'associé", async () => {
+    const cache = createMemoryAgentCache();
+    await evaluateIdea(input, fakeCaller().caller, { cache });
+    const reweighted = fakeCaller();
+    const criteria2 = input.criteria.map(c => (c.key === "innovation" ? { ...c, weight: 3 } : c));
+    await evaluateIdea({ ...input, criteria: criteria2 }, reweighted.caller, { cache });
+    expect(reweighted.calls.map(c => c.schemaName)).toEqual(["associe"]);
+  });
+
+  test("modifier l'idée relance tous les agents", async () => {
+    const cache = createMemoryAgentCache();
+    await evaluateIdea(input, fakeCaller().caller, { cache });
+    const changed = fakeCaller();
+    await evaluateIdea({ ...input, idea: { ...idea, description: "Autre description." } }, changed.caller, { cache });
+    expect(changed.calls).toHaveLength(6);
+  });
+
+  test("« Relancer l'évaluation » ne lit pas le cache", async () => {
+    const cache = createMemoryAgentCache();
+    await evaluateIdea(input, fakeCaller().caller, { cache });
+    const forced = fakeCaller();
+    await evaluateIdea(input, forced.caller, { cache, useCache: false });
+    expect(forced.calls).toHaveLength(6);
+  });
+
+  test("une entrée de cache corrompue est ignorée et l'agent rappelé, jamais « réparée »", async () => {
+    const cache = createMemoryAgentCache();
+    await evaluateIdea(input, fakeCaller().caller, { cache });
+    for (const e of cache.entries.values()) if (e.agent === "associe") e.output = { recommandation: "peut-etre" };
+    const next = fakeCaller();
+    const r = await evaluateIdea(input, next.caller, { cache });
+    expect(r.ok).toBe(true);
+    expect(next.calls.map(c => c.schemaName)).toEqual(["associe"]);
+  });
+
+  test("une réponse invalide n'est jamais mise en cache", async () => {
+    const cache = createMemoryAgentCache();
+    const bad = fakeCaller({ consultant_innovation: async r => ok(response({ note: "excellent" }, r.web)) });
+    await evaluateIdea(input, bad.caller, { cache });
+    expect([...cache.entries.values()].some(e => e.criterionKey === "innovation")).toBe(false);
+  });
+});

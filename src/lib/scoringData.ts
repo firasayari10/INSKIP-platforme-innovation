@@ -361,7 +361,9 @@ export async function listChatMessages(
     .from("idea_chat_messages")
     .select("id, role, content, referenced_refs, created_at, used_for_evaluation_id")
     .eq("idea_id", ideaId)
+    // À horodatage égal, la question (user) précède la réponse (assistant).
     .order("created_at")
+    .order("role", { ascending: false })
     .limit(200);
   if (error) return err(toError(error.code, error.message));
   const parsed = z.array(chatMessageSchema).safeParse(data);

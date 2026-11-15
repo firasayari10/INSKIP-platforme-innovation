@@ -166,7 +166,9 @@ export async function handleIdeaChat(
     .from("idea_chat_messages")
     .select("role, content")
     .eq("idea_id", idea.id)
+    // Question et réponse ont le même horodatage : à égalité, la réponse est la plus récente.
     .order("created_at", { ascending: false })
+    .order("role", { ascending: true })
     .limit(16);
   const history = ((historyRows ?? []) as { role: "user" | "assistant"; content: string }[]).reverse();
 

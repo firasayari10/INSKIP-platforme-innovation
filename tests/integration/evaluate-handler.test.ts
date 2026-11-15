@@ -138,6 +138,16 @@ function backgroundCatcher() {
   return { background: (job: Promise<void>) => void jobs.push(job), settle: () => Promise.all(jobs) };
 }
 
+/** Lance une évaluation sur un faux Supabase vierge et renvoie l'empreinte des entrées enregistrée. */
+async function inputFingerprintOf(overrides: Record<string, string> = {}): Promise<string> {
+  const { make, ops } = fakeSupabase();
+  const jobs = backgroundCatcher();
+  await handleEvaluateIdea(post({ ideaId: IDEA_ID }), { ...env, ...overrides }, { createSupabase: make, caller: okCaller, ...jobs });
+  await jobs.settle();
+  const created = ops.find(o => o.kind === "insert" && o.table === "evaluations")!.payload as { input_fingerprint: string };
+  return created.input_fingerprint;
+}
+
 const post = (body: unknown, token: string | null = "jeton") =>
   new Request("http://localhost/api/evaluate-idea", {
     method: "POST",
@@ -180,9 +190,11 @@ describe("POST /api/evaluate-idea", () => {
     expect(ops.some(o => o.kind !== "select")).toBe(false);
   });
 
-  test("réutilise une évaluation identique déjà faite, sans appeler les agents", async () => {
+  test("réutilise une évaluation aux entrées identiques, sans appeler les agents", async () => {
+    const fp = await inputFingerprintOf();
+    expect(fp).toMatch(/^[0-9a-f]{64}$/);
     const { make } = fakeSupabase({
-      previous: [{ id: "eval-old", status: "completed", created_at: new Date().toISOString(), models }],
+      previous: [{ id: "eval-old", status: "completed", created_at: new Date().toISOString(), models, input_fingerprint: fp }],
     });
     let called = false;
     const r = await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, {
@@ -240,7 +252,12 @@ describe("POST /api/evaluate-idea", () => {
     expect(r.status).toBe(202);
     expect(await r.json()).toEqual({ evaluationId: "eval-1", cached: false, status: "running" });
     await jobs.settle();
-    const writes = ops.filter(o => o.kind !== "select");
+    // Cache par agent : 3 sorties (grille de 2 critères + associé ; pas d'analyste, rien ne manque) écrites avec la clé serveur.
+    const cacheWrites = ops.filter(o => o.kind === "insert" && o.table === "agent_outputs");
+    expect(cacheWrites).toHaveLength(3);
+    expect(cacheWrites.every(w => w.key === env.SUPABASE_SECRET_KEY)).toBe(true);
+    expect(ops.filter(o => o.table === "agent_outputs").every(o => o.filters.some(([c, v]) => c === "challenge_id" && v === ideaRow.challenge_id) || o.kind === "insert")).toBe(true);
+    const writes = ops.filter(o => o.kind !== "select" && o.table !== "agent_outputs");
     expect(writes.map(w => `${w.kind}:${w.table}`)).toEqual([
       "update:evaluations", // clôture des passages restés bloqués
       "insert:evaluations",
@@ -252,6 +269,7 @@ describe("POST /api/evaluate-idea", () => {
     expect(ops.some(o => o.table === "idea_authors")).toBe(false); // aucune donnée personnelle lue
     const created = writes[1]!.payload as Record<string, unknown>;
     expect(created).toMatchObject({ status: "running", prompt_version: PROMPT_VERSION, requested_by: "user-1" });
+    expect(created.input_fingerprint).toMatch(/^[0-9a-f]{64}$/);
     const completed = writes[3]!.payload as Record<string, unknown>;
     expect(completed).toMatchObject({ status: "completed", recommendation: "retenir" });
   });
@@ -312,5 +330,38 @@ describe("réévaluation avec les informations de la conversation", () => {
     await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, { createSupabase: make, caller: okCaller, ...jobs });
     await jobs.settle();
     expect(ops.some(o => o.table === "idea_chat_messages")).toBe(false);
+  });
+});
+
+describe("réutilisation par empreinte complète des entrées (défauts D1 et D2)", () => {
+  test("réutilise même si la base renvoie les modèles dans un autre ordre", async () => {
+    const fp = await inputFingerprintOf();
+    const reordered = { associe: models.associe, analyste: models.analyste, consultant: models.consultant };
+    const { make } = fakeSupabase({
+      previous: [{ id: "eval-old", status: "completed", created_at: new Date().toISOString(), models: reordered, input_fingerprint: fp }],
+    });
+    let called = false;
+    const r = await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, {
+      createSupabase: make,
+      caller: async x => ((called = true), okCaller(x)),
+    });
+    expect(await r.json()).toEqual({ evaluationId: "eval-old", cached: true, status: "completed" });
+    expect(called).toBe(false);
+  });
+
+  test("un autre modèle donne une autre empreinte : pas de réutilisation", async () => {
+    expect(await inputFingerprintOf({ OPENROUTER_MODEL_ASSOCIE: "autre/modele" })).not.toBe(await inputFingerprintOf());
+  });
+
+  test("« Relancer l'évaluation » ignore une évaluation identique et ne lit pas le cache par agent", async () => {
+    const fp = await inputFingerprintOf();
+    const { make, ops } = fakeSupabase({
+      previous: [{ id: "eval-old", status: "completed", created_at: new Date().toISOString(), models, input_fingerprint: fp }],
+    });
+    const jobs = backgroundCatcher();
+    const r = await handleEvaluateIdea(post({ ideaId: IDEA_ID, force: true }), env, { createSupabase: make, caller: okCaller, ...jobs });
+    expect(r.status).toBe(202);
+    await jobs.settle();
+    expect(ops.some(o => o.table === "agent_outputs" && o.kind === "select")).toBe(false);
   });
 });

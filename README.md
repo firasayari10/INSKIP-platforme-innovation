@@ -118,6 +118,19 @@ Configuration (`.env.local` en local, variables Vercel en production ; voir `.en
   recherche web intégrée (outil `web_search`) ;
 - **OpenRouter** (`LLM_PROVIDER=openrouter`, `OPENROUTER_API_KEY`) : un modèle par rôle.
 
+### Cache des évaluations (ADR 0003 §1)
+
+- Chaque appel d'agent est mémorisé dans `agent_outputs` sous l'empreinte exacte de sa requête
+  (consignes, données de l'idée, contexte, grille, modèle, paramètres). Une requête identique dans
+  le **même challenge** n'est pas refacturée ; jamais de partage entre challenges (confidentialité).
+- Conséquences : une seconde évaluation identique ne coûte rien ; si l'associé échoue, la relance
+  ne rappelle que lui ; changer le poids d'un critère ne relance que l'associé ; deux idées au
+  contenu identique (doublons exacts) partagent leurs analyses.
+- Une évaluation déjà faite avec exactement les mêmes entrées est réutilisée telle quelle
+  (empreinte complète des entrées). « Relancer l'évaluation » ignore ces deux caches.
+- `LLM_PROVIDER=simulation` : réponses générées sans appel au fournisseur (aucun jeton consommé),
+  pour développer et démontrer l'application. Les tests interdisent tout appel réseau sortant.
+
 ### Limitation de débit
 
 - **Vers le fournisseur d'IA** (`src/server/rateLimiter.ts`), partagée par toutes les évaluations

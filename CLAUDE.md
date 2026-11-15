@@ -134,6 +134,7 @@ docs/adr/               une décision = un fichier court (contexte, décision, c
 | `idea_authors` | Données personnelles isolées | `idea_id`, `first_name`, `last_name`, `email` (nullable) ; jamais envoyées à l'IA ni exportées par défaut |
 | `evaluations` | Un passage des agents sur une idée | `status`, `prompt_version`, `content_hash`, `models`, `estimates` (données manquantes estimées), `synthesis`, `recommendation`, `usage` ; **écrite par le serveur seul** |
 | `criterion_assessments` | Analyse d'un critère par un agent | `ai_score` 1..5, `summary`, `details` (sous-critères, pour/contre, hypothèses, confiance), `sources` vérifiées ; **écrite par le serveur seul** |
+| `agent_outputs` | Cache des sorties d'agents (ADR 0003) | `challenge_id`, `agent`, `criterion_key`, `fingerprint` (SHA-256 de la requête exacte), `output`, `citations` ; unique `(challenge_id, fingerprint)` ; **serveur seul**, aucun accès navigateur |
 | `idea_chat_messages` | Discussion évaluateur ↔ IA sur une idée | `role` user/assistant, `content`, `referenced_refs` (@mentions), `used_for_evaluation_id` ; **écrite par le serveur seul** |
 | `scores` | Note finale **humaine** (idée, critère) | `final_score` 1..5, `final_comment`, `based_on_assessment_id`, `validated_by` (forcé à l'utilisateur), `validated_at` |
 | `duplicate_pairs` | Paires candidates | `idea_a < idea_b` (check), `similarity`, `status` `suggested/confirmed/dismissed` |

@@ -1,18 +1,30 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { PROMPT_VERSION, type CriterionForScoring } from "../domain/scoring";
-import { evaluateIdea, type AgentModels, type EvaluationErrorCode, type EvaluationInput } from "./evaluateIdea";
+import {
+  evaluateIdea,
+  type AgentModels,
+  type CallParams,
+  type EvaluationErrorCode,
+  type EvaluationInput,
+  type EvaluationOptions,
+} from "./evaluateIdea";
 import { createOpenRouterCaller, type AgentCaller } from "./openrouter";
 import { createRateLimiter, type RateLimiter } from "./rateLimiter";
 import { createSimulatedCaller } from "./simulatedLlm";
 import { createZaiCaller } from "./zai";
+import { evaluationInputKey } from "../domain/cache";
+import { sha256Hex } from "../lib/hash";
+import { createSupabaseAgentCache, type AgentCache } from "./agentCache";
 import { evaluatorNotes } from "../domain/chat";
 
 /**
  * POST /api/evaluate-idea  { ideaId, force? }  —  Authorization: Bearer <jeton de session>
  * 1. vérifie l'utilisateur et lit l'idée AVEC SES DROITS (RLS : il doit être membre du challenge) ;
  * 2. limite le nombre d'évaluations par utilisateur et par heure (protection du coût) ;
- * 3. réutilise une évaluation identique (même contenu, même prompt, mêmes modèles) sauf `force` ;
+ * 3. réutilise une évaluation aux entrées strictement identiques (empreinte complète : idée,
+ *    contexte, grille, informations de l'évaluateur, modèles, consignes) sauf `force` ; chaque
+ *    agent consulte en plus le cache par agent du challenge (ADR 0003 §1) ;
  * 4. crée l'évaluation « en cours », répond aussitôt (202) et fait travailler les agents en
  *    arrière-plan ; le navigateur suit l'avancement en relisant l'évaluation.
  * Les résultats sont écrits avec la clé serveur : le navigateur ne peut jamais écrire lui-même une
@@ -44,6 +56,7 @@ export const envSchema = z
     LLM_MIN_INTERVAL_MS: z.coerce.number().int().min(0).max(60_000).default(500),
     LLM_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(600_000).default(180_000),
     EVALUATIONS_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(60),
+    AGENT_CACHE_MAX_AGE_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
     CHAT_MESSAGES_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(120),
     APP_URL: z.url().default("http://localhost:3000"),
   })
@@ -106,6 +119,15 @@ export function modelsFor(env: ServerEnv): AgentModels {
     : { analyste: env.OPENROUTER_MODEL_ANALYSTE, consultant: env.OPENROUTER_MODEL_CONSULTANT, associe: env.OPENROUTER_MODEL_ASSOCIE };
 }
 
+/** Paramètres d'appel réellement envoyés au fournisseur : ils font partie de la clé de cache. */
+export function callParamsFor(env: ServerEnv): CallParams {
+  if (env.provider === "zai")
+    return { provider: "zai", temperature: 0.2, maxTokens: 4096, thinking: env.ZAI_THINKING === "true", webCount: env.WEB_MAX_RESULTS };
+  if (env.provider === "openrouter")
+    return { provider: "openrouter", temperature: 0.2, maxTokens: 0, thinking: false, webCount: env.WEB_MAX_RESULTS };
+  return { provider: "simulation", temperature: 0, maxTokens: 0, thinking: false, webCount: 0 };
+}
+
 export function callerFor(env: ServerEnv, limiter: RateLimiter): AgentCaller {
   // Aucun appel réseau ni jeton consommé (développement, démonstration).
   if (env.provider === "simulation") return createSimulatedCaller();
@@ -132,6 +154,8 @@ export interface HandlerDeps {
   /** Transport des agents (remplaçable en test). */
   caller?: AgentCaller;
   createSupabase?: typeof createClient;
+  /** Cache des sorties d'agents (par défaut : table agent_outputs ; remplaçable en test). */
+  agentCache?: AgentCache;
   /** Prise en charge du travail d'arrière-plan (ex. `waitUntil` sur Vercel). */
   background?: (job: Promise<void>) => void;
 }
@@ -194,23 +218,7 @@ export async function handleEvaluateIdea(
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const { data: previous } = await adminDb
-    .from("evaluations")
-    .select("id, status, created_at, models")
-    .eq("idea_id", idea.id)
-    .eq("prompt_version", PROMPT_VERSION)
-    .eq("content_hash", idea.content_hash)
-    .order("created_at", { ascending: false })
-    .limit(5);
-  const running = (previous ?? []).find(
-    e => e.status === "running" && Date.now() - new Date(e.created_at).getTime() < RUNNING_TIMEOUT_MS,
-  );
-  if (running) return json(202, { evaluationId: running.id, cached: false, status: "running" });
-  const cached = (previous ?? []).find(
-    e => e.status === "completed" && JSON.stringify(e.models) === JSON.stringify(models),
-  );
-  if (cached && !body.force && !body.useChatNotes) return json(200, { evaluationId: cached.id, cached: true, status: "completed" });
-
+  // Informations de la discussion non encore prises en compte (réévaluation demandée).
   let notes: string | null = null;
   let noteMessageIds: string[] = [];
   if (body.useChatNotes) {
@@ -224,6 +232,47 @@ export async function handleEvaluateIdea(
     notes = evaluatorNotes((chat ?? []).map(m => m.content as string));
     noteMessageIds = (chat ?? []).map(m => m.id as string);
   }
+
+  const challenge = (Array.isArray(idea.challenges) ? idea.challenges[0] : idea.challenges) as {
+    client_name: string;
+    title: string;
+    context: string | null;
+  };
+  const input: EvaluationInput = {
+    idea: {
+      external_ref: idea.external_ref,
+      title: idea.title,
+      description: idea.description,
+      expected_benefits: idea.expected_benefits,
+      direction: idea.direction,
+      site: idea.site,
+      theme: idea.theme,
+      budget_raw: idea.budget_raw,
+      budget_eur: idea.budget_eur === null ? null : Number(idea.budget_eur),
+    },
+    challenge,
+    criteria: criteria.map(c => ({ ...c, weight: Number(c.weight), anchors: c.anchors ?? {} })),
+    models,
+    evaluatorNotes: notes,
+  };
+  // Empreinte de TOUTES les entrées (idée, contexte effectif, grille, notes, modèles, consignes) :
+  // corrige D1 (empreinte limitée au titre et à la description) et D2 (ordre des clés jsonb).
+  const inputFingerprint = await sha256Hex(
+    evaluationInputKey({ ...input, models: { ...models }, evaluatorNotes: notes, promptVersion: PROMPT_VERSION, mode: "complete" }),
+  );
+
+  const { data: previous } = await adminDb
+    .from("evaluations")
+    .select("id, status, created_at, input_fingerprint")
+    .eq("idea_id", idea.id)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  const running = (previous ?? []).find(
+    e => e.status === "running" && Date.now() - new Date(e.created_at).getTime() < RUNNING_TIMEOUT_MS,
+  );
+  if (running) return json(202, { evaluationId: running.id, cached: false, status: "running" });
+  const cached = (previous ?? []).find(e => e.status === "completed" && e.input_fingerprint === inputFingerprint);
+  if (cached && !body.force) return json(200, { evaluationId: cached.id, cached: true, status: "completed" });
 
   // Quota par utilisateur : nombre d'évaluations lancées sur la dernière heure.
   const { count } = await adminDb
@@ -250,6 +299,7 @@ export async function handleEvaluateIdea(
       status: "running",
       prompt_version: PROMPT_VERSION,
       content_hash: idea.content_hash,
+      input_fingerprint: inputFingerprint,
       models,
       requested_by: userId,
       evaluator_notes: notes,
@@ -262,29 +312,6 @@ export async function handleEvaluateIdea(
     return fail(500, "enregistrement_impossible");
   }
 
-  const challenge = (Array.isArray(idea.challenges) ? idea.challenges[0] : idea.challenges) as {
-    client_name: string;
-    title: string;
-    context: string | null;
-  };
-  const input: EvaluationInput = {
-    idea: {
-      external_ref: idea.external_ref,
-      title: idea.title,
-      description: idea.description,
-      expected_benefits: idea.expected_benefits,
-      direction: idea.direction,
-      site: idea.site,
-      theme: idea.theme,
-      budget_raw: idea.budget_raw,
-      budget_eur: idea.budget_eur === null ? null : Number(idea.budget_eur),
-    },
-    challenge,
-    criteria: criteria.map(c => ({ ...c, weight: Number(c.weight), anchors: c.anchors ?? {} })),
-    models,
-    evaluatorNotes: notes,
-  };
-
   const job = runAndStore({
     evaluationId: created.id,
     ideaId: idea.id,
@@ -294,6 +321,11 @@ export async function handleEvaluateIdea(
     caller: deps.caller ?? callerFor(env, limiterFor(env)),
     adminDb,
     noteMessageIds,
+    options: {
+      cache: deps.agentCache ?? createSupabaseAgentCache(adminDb, idea.challenge_id, env.AGENT_CACHE_MAX_AGE_DAYS),
+      useCache: !body.force,
+      params: callParamsFor(env),
+    },
   });
   if (deps.background) deps.background(job);
   else job.catch(e => console.error("[evaluate-idea] erreur inattendue :", e instanceof Error ? e.message : "inconnue"));
@@ -310,6 +342,7 @@ async function runAndStore(args: {
   caller: AgentCaller;
   adminDb: SupabaseClient;
   noteMessageIds: string[];
+  options: EvaluationOptions;
 }): Promise<void> {
   const { evaluationId, adminDb } = args;
   const markFailed = (code: string) =>
@@ -317,7 +350,7 @@ async function runAndStore(args: {
 
   let result: Awaited<ReturnType<typeof evaluateIdea>>;
   try {
-    result = await evaluateIdea(args.input, args.caller);
+    result = await evaluateIdea(args.input, args.caller, args.options);
   } catch (e) {
     console.error("[evaluate-idea] exception :", e instanceof Error ? e.message : "inconnue");
     await markFailed("erreur_interne");

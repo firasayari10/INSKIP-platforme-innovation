@@ -10,7 +10,7 @@ import { z } from "zod";
  */
 
 /** Toute modification d'un prompt ou d'un schéma incrémente cette version (CLAUDE.md §9). */
-export const PROMPT_VERSION = "1.1";
+export const PROMPT_VERSION = "1.2";
 
 // ---------- Schémas des réponses des agents ----------
 
@@ -222,7 +222,6 @@ function ideaBlock(idea: IdeaForScoring): string {
   const line = (label: string, value: string | null) => `${label} : ${value && value.trim() ? value : "(non renseigné)"}`;
   return [
     "<idee>",
-    line("Référence", idea.external_ref),
     line("Titre", idea.title),
     line("Description", idea.description),
     line("Bénéfices attendus", idea.expected_benefits),
