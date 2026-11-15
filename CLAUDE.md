@@ -105,7 +105,7 @@ api/            →  lib/  →  domain/
 
 ```
 api/                    Vercel Functions — seul point d'entrée lisant les clés d'IA (ZAI_/OPENROUTER_API_KEY) et SUPABASE_SECRET_KEY
-src/server/             logique serveur (agents, client OpenRouter) : jamais importée par le front
+src/server/             logique serveur (agents, discussion, clients Z.ai/OpenRouter, limiteur) : jamais importée par le front
 src/
   domain/               import (parse/normalise), scoring, duplicates, shortlist, schémas zod
   features/             auth/ challenges/ import/ ideas/ scoring/ duplicates/ shortlist/
@@ -134,6 +134,7 @@ docs/adr/               une décision = un fichier court (contexte, décision, c
 | `idea_authors` | Données personnelles isolées | `idea_id`, `first_name`, `last_name`, `email` (nullable) ; jamais envoyées à l'IA ni exportées par défaut |
 | `evaluations` | Un passage des agents sur une idée | `status`, `prompt_version`, `content_hash`, `models`, `estimates` (données manquantes estimées), `synthesis`, `recommendation`, `usage` ; **écrite par le serveur seul** |
 | `criterion_assessments` | Analyse d'un critère par un agent | `ai_score` 1..5, `summary`, `details` (sous-critères, pour/contre, hypothèses, confiance), `sources` vérifiées ; **écrite par le serveur seul** |
+| `idea_chat_messages` | Discussion évaluateur ↔ IA sur une idée | `role` user/assistant, `content`, `referenced_refs` (@mentions), `used_for_evaluation_id` ; **écrite par le serveur seul** |
 | `scores` | Note finale **humaine** (idée, critère) | `final_score` 1..5, `final_comment`, `based_on_assessment_id`, `validated_by` (forcé à l'utilisateur), `validated_at` |
 | `duplicate_pairs` | Paires candidates | `idea_a < idea_b` (check), `similarity`, `status` `suggested/confirmed/dismissed` |
 | `shortlist_items` | Sélection | `challenge_id`, `idea_id`, `rank`, `note` ; unique `(challenge_id, idea_id)` |
@@ -365,9 +366,11 @@ distante.
 ## 13. Git et commandes
 
 - Branche par feature (`feat/import`, `fix/notation-bornes`), PR vers `main`, CI verte requise.
-- **Messages de commit simples, entièrement en français** : une phrase courte au présent, sans
-  préfixe anglais (`feat:`, `fix:`…). Exemples : « Ajoute l'import des idées », « Corrige le
-  libellé du code de connexion », « Teste la détection des doublons ».
+- **Messages de commit** : un préfixe de type, puis une description courte en français qui
+  décrit ce qui change dans le code (pas la demande reformulée). Préfixes : `feat:` (nouvelle
+  fonctionnalité), `fix:` (correction), `refactor:`, `test:`, `docs:`, `chore:`, `ci:`.
+  Exemples : « feat: discussion IA sur la fiche d'une idée », « fix: suivi d'une évaluation en
+  mode strict de React ». Description : liste des modifications du code.
 - **Jamais de commit ni de push sans accord explicite** : quand un changement est prêt et
   vérifié, proposer le message et demander. Un accord vaut pour ce commit seulement.
 - Un commit = une intention, qui compile et passe les tests.

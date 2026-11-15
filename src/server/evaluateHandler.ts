@@ -4,7 +4,9 @@ import { PROMPT_VERSION, type CriterionForScoring } from "../domain/scoring";
 import { evaluateIdea, type AgentModels, type EvaluationErrorCode, type EvaluationInput } from "./evaluateIdea";
 import { createOpenRouterCaller, type AgentCaller } from "./openrouter";
 import { createRateLimiter, type RateLimiter } from "./rateLimiter";
+import { createSimulatedCaller } from "./simulatedLlm";
 import { createZaiCaller } from "./zai";
+import { evaluatorNotes } from "../domain/chat";
 
 /**
  * POST /api/evaluate-idea  { ideaId, force? }  —  Authorization: Bearer <jeton de session>
@@ -17,9 +19,9 @@ import { createZaiCaller } from "./zai";
  * « note IA » (CLAUDE.md §7). Aucun contenu d'idée n'est journalisé.
  */
 
-const envSchema = z
+export const envSchema = z
   .object({
-    LLM_PROVIDER: z.enum(["zai", "openrouter"]).optional(),
+    LLM_PROVIDER: z.enum(["zai", "openrouter", "simulation"]).optional(),
     SUPABASE_URL: z.url(),
     SUPABASE_PUBLISHABLE_KEY: z.string().min(10),
     SUPABASE_SECRET_KEY: z.string().min(10),
@@ -42,16 +44,22 @@ const envSchema = z
     LLM_MIN_INTERVAL_MS: z.coerce.number().int().min(0).max(60_000).default(500),
     LLM_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(600_000).default(180_000),
     EVALUATIONS_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(60),
+    CHAT_MESSAGES_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(120),
     APP_URL: z.url().default("http://localhost:3000"),
   })
   .transform(env => ({ ...env, provider: env.LLM_PROVIDER ?? (env.ZAI_API_KEY ? "zai" : "openrouter") }))
-  .refine(env => (env.provider === "zai" ? !!env.ZAI_API_KEY : !!env.OPENROUTER_API_KEY), {
+  .refine(env => env.provider === "simulation" || (env.provider === "zai" ? !!env.ZAI_API_KEY : !!env.OPENROUTER_API_KEY), {
     message: "clé du fournisseur d'IA manquante",
     path: ["provider"],
   });
 export type ServerEnv = z.infer<typeof envSchema>;
 
-const bodySchema = z.object({ ideaId: z.uuid(), force: z.boolean().optional() });
+const bodySchema = z.object({
+  ideaId: z.uuid(),
+  force: z.boolean().optional(),
+  /** Réévaluer en tenant compte des informations données dans la conversation. */
+  useChatNotes: z.boolean().optional(),
+});
 
 export type ApiErrorCode =
   | "methode_non_autorisee"
@@ -64,19 +72,19 @@ export type ApiErrorCode =
   | "enregistrement_impossible"
   | EvaluationErrorCode;
 
-const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+export const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8", ...headers },
   });
-const fail = (status: number, code: ApiErrorCode, headers?: Record<string, string>) => json(status, { error: code }, headers);
+export const fail = (status: number, code: ApiErrorCode, headers?: Record<string, string>) => json(status, { error: code }, headers);
 
 const RUNNING_TIMEOUT_MS = 15 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
 // Limiteur partagé par toutes les évaluations de ce processus serveur (créé à la première requête).
 let sharedLimiter: { key: string; limiter: RateLimiter } | null = null;
-function limiterFor(env: ServerEnv): RateLimiter {
+export function limiterFor(env: ServerEnv): RateLimiter {
   const key = `${env.LLM_MAX_CONCURRENT}/${env.LLM_REQUESTS_PER_MINUTE}/${env.LLM_MIN_INTERVAL_MS}`;
   if (sharedLimiter?.key !== key) {
     sharedLimiter = {
@@ -91,13 +99,16 @@ function limiterFor(env: ServerEnv): RateLimiter {
   return sharedLimiter.limiter;
 }
 
-function modelsFor(env: ServerEnv): AgentModels {
+export function modelsFor(env: ServerEnv): AgentModels {
+  if (env.provider === "simulation") return { analyste: "simulation", consultant: "simulation", associe: "simulation" };
   return env.provider === "zai"
     ? { analyste: env.ZAI_MODEL_ANALYSTE, consultant: env.ZAI_MODEL_CONSULTANT, associe: env.ZAI_MODEL_ASSOCIE }
     : { analyste: env.OPENROUTER_MODEL_ANALYSTE, consultant: env.OPENROUTER_MODEL_CONSULTANT, associe: env.OPENROUTER_MODEL_ASSOCIE };
 }
 
-function callerFor(env: ServerEnv, limiter: RateLimiter): AgentCaller {
+export function callerFor(env: ServerEnv, limiter: RateLimiter): AgentCaller {
+  // Aucun appel réseau ni jeton consommé (développement, démonstration).
+  if (env.provider === "simulation") return createSimulatedCaller();
   if (env.provider === "zai") {
     return createZaiCaller({
       apiKey: env.ZAI_API_KEY!,
@@ -198,7 +209,21 @@ export async function handleEvaluateIdea(
   const cached = (previous ?? []).find(
     e => e.status === "completed" && JSON.stringify(e.models) === JSON.stringify(models),
   );
-  if (cached && !body.force) return json(200, { evaluationId: cached.id, cached: true, status: "completed" });
+  if (cached && !body.force && !body.useChatNotes) return json(200, { evaluationId: cached.id, cached: true, status: "completed" });
+
+  let notes: string | null = null;
+  let noteMessageIds: string[] = [];
+  if (body.useChatNotes) {
+    const { data: chat } = await adminDb
+      .from("idea_chat_messages")
+      .select("id, content")
+      .eq("idea_id", idea.id)
+      .eq("role", "user")
+      .is("used_for_evaluation_id", null)
+      .order("created_at");
+    notes = evaluatorNotes((chat ?? []).map(m => m.content as string));
+    noteMessageIds = (chat ?? []).map(m => m.id as string);
+  }
 
   // Quota par utilisateur : nombre d'évaluations lancées sur la dernière heure.
   const { count } = await adminDb
@@ -227,6 +252,7 @@ export async function handleEvaluateIdea(
       content_hash: idea.content_hash,
       models,
       requested_by: userId,
+      evaluator_notes: notes,
     })
     .select("id")
     .single();
@@ -256,6 +282,7 @@ export async function handleEvaluateIdea(
     challenge,
     criteria: criteria.map(c => ({ ...c, weight: Number(c.weight), anchors: c.anchors ?? {} })),
     models,
+    evaluatorNotes: notes,
   };
 
   const job = runAndStore({
@@ -266,6 +293,7 @@ export async function handleEvaluateIdea(
     input,
     caller: deps.caller ?? callerFor(env, limiterFor(env)),
     adminDb,
+    noteMessageIds,
   });
   if (deps.background) deps.background(job);
   else job.catch(e => console.error("[evaluate-idea] erreur inattendue :", e instanceof Error ? e.message : "inconnue"));
@@ -281,6 +309,7 @@ async function runAndStore(args: {
   input: EvaluationInput;
   caller: AgentCaller;
   adminDb: SupabaseClient;
+  noteMessageIds: string[];
 }): Promise<void> {
   const { evaluationId, adminDb } = args;
   const markFailed = (code: string) =>
@@ -341,5 +370,10 @@ async function runAndStore(args: {
   if (updateError) {
     console.error("[evaluate-idea] enregistrement impossible :", updateError.code);
     await markFailed("enregistrement_impossible");
+    return;
+  }
+  // Les messages pris en compte sont rattachés à cette évaluation (traçabilité).
+  if (args.noteMessageIds.length > 0) {
+    await adminDb.from("idea_chat_messages").update({ used_for_evaluation_id: evaluationId }).in("id", args.noteMessageIds);
   }
 }

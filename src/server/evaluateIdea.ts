@@ -40,6 +40,8 @@ export interface EvaluationInput {
   challenge: ChallengeForScoring;
   criteria: CriterionForScoring[];
   models: AgentModels;
+  /** Informations apportées par l'évaluateur dans la conversation (réévaluation). */
+  evaluatorNotes?: string | null;
 }
 
 export interface EstimateResult {
@@ -134,7 +136,7 @@ export async function evaluateIdea(
       call,
       "analyste",
       input.models.analyste,
-      analystMessages(input.idea, input.challenge, missing),
+      analystMessages(input.idea, input.challenge, missing, input.evaluatorNotes ?? null),
       analystOutputSchema,
       true,
       usage,
@@ -164,7 +166,7 @@ export async function evaluateIdea(
         call,
         `consultant_${criterion.key}`,
         input.models.consultant,
-        criterionMessages(criterion, input.idea, input.challenge, analyst),
+        criterionMessages(criterion, input.idea, input.challenge, analyst, input.evaluatorNotes ?? null),
         criterionOutputSchema,
         true,
         usage,
@@ -204,6 +206,7 @@ export async function evaluateIdea(
       analyst,
       input.criteria.map(c => ({ criterion: c, output: assessments.find(a => a.criterionKey === c.key)!.output })),
       aiGlobalScore,
+      input.evaluatorNotes ?? null,
     ),
     synthesisOutputSchema,
     false,

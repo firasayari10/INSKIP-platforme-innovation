@@ -66,6 +66,17 @@ informations fournies par l'utilisateur.
 - **Exécution en arrière-plan** : la file d'attente du limiteur peut allonger une évaluation
   au-delà du délai d'une requête HTTP ; le serveur répond donc 202 et la page suit l'avancement.
 
+### Révision du 2026-11-15 : discussion avec l'IA et réévaluation
+
+- `POST /api/idea-chat` : conversation avec l'associé senior sur une idée (explication, apport
+  d'informations, comparaison avec des idées citées par `@IDENTIFIANT`, résolues dans le même
+  challenge avec le jeton de l'utilisateur). Messages conservés dans `idea_chat_messages`,
+  écrits par le serveur seul (lecture seule pour le navigateur).
+- Réévaluation « avec ces informations » : les messages de l'évaluateur non encore utilisés sont
+  transmis aux agents (bloc `<informations_evaluateur>`, déclaré comme donnée) et enregistrés
+  dans `evaluations.evaluator_notes` ; les messages sont rattachés à l'évaluation produite.
+  `PROMPT_VERSION` passe à 1.1.
+
 ## Conséquences
 
 - Nouvelle clé serveur : `SUPABASE_SECRET_KEY` (jamais dans le navigateur ; l'application refuse

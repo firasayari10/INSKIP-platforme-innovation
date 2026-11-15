@@ -25,7 +25,9 @@ export function ChallengeContextCard({ challengeId }: { challengeId: string }) {
   const [error, setError] = useState<string | null>(null);
 
   const current = context.state.status === "ready" ? context.state.data : null;
-  useEffect(() => setDraft(current ?? DEFAULT_CLIENT_CONTEXT), [current]);
+  useEffect(() => {
+    setDraft(current ?? DEFAULT_CLIENT_CONTEXT);
+  }, [current]);
 
   const save = async () => {
     setPending(true);

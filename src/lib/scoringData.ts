@@ -238,13 +238,14 @@ export async function requestEvaluation(
   accessToken: string,
   ideaId: string,
   force: boolean,
+  useChatNotes = false,
 ): Promise<Result<{ evaluationId: string; cached: boolean; status: "running" | "completed" }, EvaluationRequestError>> {
   let response: Response;
   try {
     response = await fetch("/api/evaluate-idea", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ ideaId, force }),
+      body: JSON.stringify({ ideaId, force, useChatNotes }),
     });
   } catch {
     return err("reseau");
@@ -321,8 +322,9 @@ export async function evaluateAndWait(
   ideaId: string,
   force: boolean,
   shouldStop: () => boolean = () => false,
+  useChatNotes = false,
 ): Promise<Result<{ evaluationId: string }, EvaluationRequestError>> {
-  const started = await requestEvaluation(accessToken, ideaId, force);
+  const started = await requestEvaluation(accessToken, ideaId, force, useChatNotes);
   if (!started.ok) return started;
   if (started.value.status === "completed") return ok({ evaluationId: started.value.evaluationId });
   const deadline = Date.now() + MAX_WAIT_MS;
@@ -337,4 +339,84 @@ export async function evaluateAndWait(
     }
   }
   return err("delai_depasse");
+}
+
+// ---------- Conversation sur une idée ----------
+
+const chatMessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+  referenced_refs: z.array(z.string()),
+  created_at: z.string(),
+  used_for_evaluation_id: z.string().nullable(),
+});
+export type ChatMessageRow = z.infer<typeof chatMessageSchema>;
+
+export async function listChatMessages(
+  client: SupabaseClient,
+  ideaId: string,
+): Promise<Result<ChatMessageRow[], DataError>> {
+  const { data, error } = await client
+    .from("idea_chat_messages")
+    .select("id, role, content, referenced_refs, created_at, used_for_evaluation_id")
+    .eq("idea_id", ideaId)
+    .order("created_at")
+    .limit(200);
+  if (error) return err(toError(error.code, error.message));
+  const parsed = z.array(chatMessageSchema).safeParse(data);
+  return parsed.success ? ok(parsed.data) : err("donnees_invalides");
+}
+
+export interface ChatReply {
+  messages: ChatMessageRow[];
+  informations: string[];
+  suggestReevaluation: boolean;
+  unknownRefs: string[];
+}
+
+export async function sendChatMessage(
+  accessToken: string,
+  ideaId: string,
+  message: string,
+): Promise<Result<ChatReply, EvaluationRequestError>> {
+  let response: Response;
+  try {
+    response = await fetch("/api/idea-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ ideaId, message }),
+    });
+  } catch {
+    return err("reseau");
+  }
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok) {
+    const parsed = z
+      .object({
+        messages: z.array(chatMessageSchema),
+        informations: z.array(z.string()),
+        suggestReevaluation: z.boolean(),
+        unknownRefs: z.array(z.string()),
+      })
+      .safeParse(body);
+    return parsed.success ? ok(parsed.data) : err("inconnue");
+  }
+  const code = z.object({ error: z.string() }).safeParse(body);
+  return err(code.success && KNOWN.has(code.data.error) ? (code.data.error as EvaluationRequestError) : "inconnue");
+}
+
+/** Idées du challenge proposables dans une mention @ (identifiant et titre seulement). */
+export async function listMentionCandidates(
+  client: SupabaseClient,
+  challengeId: string,
+): Promise<Result<{ id: string; external_ref: string; title: string }[], DataError>> {
+  const { data, error } = await client
+    .from("ideas")
+    .select("id, external_ref, title")
+    .eq("challenge_id", challengeId)
+    .order("external_ref");
+  if (error) return err(toError(error.code, error.message));
+  const parsed = z.array(z.object({ id: z.string(), external_ref: z.string(), title: z.string() })).safeParse(data);
+  return parsed.success ? ok(parsed.data) : err("donnees_invalides");
 }

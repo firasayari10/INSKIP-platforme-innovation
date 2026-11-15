@@ -157,11 +157,23 @@ Configuration (`.env.local` en local, variables Vercel en production ; voir `.en
 - Une évaluation identique (même contenu, mêmes consignes, mêmes modèles) est réutilisée au lieu
   d'être refacturée ; « Relancer l'évaluation » force un nouveau passage.
 
-### Prochaine étape
+### Discussion avec l'IA sur la décision
 
-Dialogue avec l'IA sur la fiche d'une idée : l'évaluateur pourra demander l'explication d'une
-note et apporter des informations (contexte réel, chiffres du porteur de l'idée) qui seront
-prises en compte dans une nouvelle évaluation.
+Sur la fiche d'une idée, le bouton ✨ « Discuter de la décision » ouvre une conversation avec
+l'associé senior (IA), qui dispose de l'idée, de son évaluation complète et du contexte client :
+
+- **expliquer** une note ou la recommandation (arguments, hypothèses, limites) ;
+- **apporter des informations** (chiffres réels, contraintes, stratégie du client) ; le bouton
+  « Réévaluer avec ces informations » relance les agents en leur transmettant les messages de
+  l'évaluateur non encore utilisés (bloc `<informations_evaluateur>`), puis les rattache à
+  cette évaluation (traçabilité) ;
+- **comparer** avec d'autres idées en les citant par leur identifiant précédé de `@`
+  (ex. « compare avec @IDEA-007 ») ; la saisie de `@` propose les idées du challenge. Seules les
+  idées du même challenge, accessibles à l'utilisateur, sont transmises à l'IA.
+
+Les conversations sont conservées (`idea_chat_messages`) et écrites par le serveur seul ;
+l'IA ne modifie jamais une note elle-même. Quota : `CHAT_MESSAGES_PER_HOUR` (120) messages par
+utilisateur et par heure, en plus de la limitation de débit commune.
 
 ## Consultation des idées : hypothèses
 

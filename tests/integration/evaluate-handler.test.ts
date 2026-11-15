@@ -58,6 +58,10 @@ function fakeSupabase(opts: { user?: boolean; idea?: boolean; previous?: unknown
     ideas: opts.idea === false ? null : ideaRow,
     criteria: criteriaRows,
     evaluations: opts.previous ?? [],
+    idea_chat_messages: [
+      { id: "msg-1", content: "Le budget réel est de 55 k€." },
+      { id: "msg-2", content: "Le site de Lyon est prioritaire." },
+    ],
   };
   const make = ((_url: string, key: string) => {
     const builder = (table: string) => {
@@ -78,6 +82,8 @@ function fakeSupabase(opts: { user?: boolean; idea?: boolean; previous?: unknown
         limit: () => chain,
         lt: (col: string, v: unknown) => (op.filters.push([`${col}<`, v]), chain),
         gte: (col: string, v: unknown) => (op.filters.push([`${col}>=`, v]), chain),
+        is: (col: string, v: unknown) => (op.filters.push([`${col} is`, v]), chain),
+        in: (col: string, v: unknown) => (op.filters.push([`${col} in`, v]), chain),
         maybeSingle: async () => result(),
         single: async () => result(),
         then: (resolve: (v: unknown) => void) => resolve(result()),
@@ -268,5 +274,43 @@ describe("POST /api/evaluate-idea", () => {
     expect(r.status).toBe(202); // l'échec est constaté en arrière-plan et enregistré
     await jobs.settle();
     expect(ops.at(-1)).toMatchObject({ kind: "update", table: "evaluations", payload: { status: "failed", error_code: "credit_insuffisant" } });
+  });
+});
+
+describe("réévaluation avec les informations de la conversation", () => {
+  test("transmet aux agents les messages non encore utilisés, les trace, puis les rattache à l'évaluation", async () => {
+    const { make, ops } = fakeSupabase({
+      previous: [{ id: "eval-old", status: "completed", created_at: new Date().toISOString(), models }],
+    });
+    const prompts: string[] = [];
+    const caller: AgentCaller = async r => {
+      prompts.push(r.messages.map(m => m.content).join("\n"));
+      return okCaller(r);
+    };
+    const jobs = backgroundCatcher();
+    const r = await handleEvaluateIdea(post({ ideaId: IDEA_ID, useChatNotes: true }), env, { createSupabase: make, caller, ...jobs });
+    expect(r.status).toBe(202); // pas de réutilisation du cache : nouvelle évaluation
+    await jobs.settle();
+
+    const read = ops.find(o => o.table === "idea_chat_messages" && o.kind === "select")!;
+    expect(read.key).toBe(env.SUPABASE_SECRET_KEY);
+    expect(read.filters).toContainEqual(["role", "user"]);
+    expect(read.filters).toContainEqual(["used_for_evaluation_id is", null]);
+
+    const created = ops.find(o => o.kind === "insert" && o.table === "evaluations")!.payload as Record<string, unknown>;
+    expect(created.evaluator_notes).toBe("- Le budget réel est de 55 k€.\n- Le site de Lyon est prioritaire.");
+    expect(prompts.every(p => p.includes("<informations_evaluateur>") && p.includes("55 k€"))).toBe(true);
+
+    const link = ops.find(o => o.kind === "update" && o.table === "idea_chat_messages")!;
+    expect(link.payload).toEqual({ used_for_evaluation_id: "eval-1" });
+    expect(link.filters).toContainEqual(["id in", ["msg-1", "msg-2"]]);
+  });
+
+  test("sans demande explicite, la conversation n'est pas lue", async () => {
+    const { make, ops } = fakeSupabase();
+    const jobs = backgroundCatcher();
+    await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, { createSupabase: make, caller: okCaller, ...jobs });
+    await jobs.settle();
+    expect(ops.some(o => o.table === "idea_chat_messages")).toBe(false);
   });
 });

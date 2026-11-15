@@ -1,5 +1,5 @@
 import { ArrowLeft, ChevronLeft, ChevronRight, Copy, TriangleAlert, UserRound } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ErrorBlock, LoadingBlock } from "@/components/PageStates";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { getChallenge, getIdea, listDuplicateIdeaIds, listDuplicatesOfIdea, list
 import { dataErrorMessages, rowWarningLabels } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import { EvaluationPanel } from "@/features/scoring/EvaluationPanel";
+import { IdeaChat } from "@/features/scoring/IdeaChat";
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const longDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric" });
@@ -24,6 +25,8 @@ export function IdeaPage() {
   const { client } = useAuth();
   const [params] = useSearchParams();
   const query = params.size ? `?${params}` : "";
+  // Incrémenté après une réévaluation lancée depuis la discussion : recharge la section Évaluation.
+  const [evaluationVersion, setEvaluationVersion] = useState(0);
 
   const challenge = useLoader(() => getChallenge(client, challengeId), [client, challengeId]);
   const idea = useLoader(() => getIdea(client, challengeId, ideaId), [client, challengeId, ideaId]);
@@ -164,7 +167,14 @@ export function IdeaPage() {
         </aside>
       </div>
 
-      <EvaluationPanel challengeId={challengeId} ideaId={i.id} />
+      <EvaluationPanel key={`${i.id}-${evaluationVersion}`} challengeId={challengeId} ideaId={i.id} />
+      <IdeaChat
+        key={i.id}
+        challengeId={challengeId}
+        ideaId={i.id}
+        ideaRef={i.external_ref}
+        onReevaluated={() => setEvaluationVersion(v => v + 1)}
+      />
     </div>
   );
 }

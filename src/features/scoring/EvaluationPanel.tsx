@@ -43,12 +43,20 @@ export function EvaluationPanel({ challengeId, ideaId }: { challengeId: string; 
   const mounted = useRef(true);
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
-    if (!running) return setElapsed(0);
+    if (!running) {
+      setElapsed(0);
+      return;
+    }
     const started = Date.now();
     const t = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
     return () => clearInterval(t);
   }, [running]);
-  useEffect(() => () => void (mounted.current = false), []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // Évaluation lancée ailleurs (lot, autre onglet) : on suit son avancement.
   const runningElsewhere =
