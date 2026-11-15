@@ -1,0 +1,34 @@
+# Dépendances
+node_modules/
+
+# Build
+dist/
+out/
+*.tsbuildinfo
+
+# Environnement : jamais de secrets dans le dépôt (voir .env.example)
+.env
+.env.*
+!.env.example
+
+# Vercel / Supabase local
+.vercel/
+supabase/.temp/
+supabase/.branches/
+
+# Données réelles clients : interdites dans le dépôt (seules les fixtures fictives de tests/fixtures/ sont versionnées)
+data/
+*.export.csv
+*.export.xlsx
+
+# Claude Code : réglages personnels
+.claude/settings.local.json
+
+# Divers
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
