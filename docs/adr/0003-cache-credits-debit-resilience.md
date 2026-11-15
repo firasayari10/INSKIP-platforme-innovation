@@ -818,7 +818,12 @@ V2) et de cet ADR (statut « acceptée » lot par lot).
 - **Lot 1 — fait (2026-11-15)** : `src/domain/cache.ts`, `src/server/agentCache.ts`, migration
   `cache_agents` (M-A), empreinte complète des entrées (D1), `PROMPT_VERSION` 1.2 (référence de
   l'idée retirée des consignes des agents).
-- Lots 2 à 6 : à faire.
+- **Lot 2 — fait (2026-11-15)** : migration `credits_ia` (M-B, adaptée : crédit mensuel, mois
+  Europe/Paris, régularisation unique avec la liste des appels, références souples au challenge
+  pour que le journal survive à sa suppression), `src/domain/credits.ts`, `src/server/credits.ts`,
+  réservation/régularisation dans l'évaluation et la discussion, indicateur dans l'en-tête.
+  Pseudonymisation systématique des textes envoyés à l'IA (ADR 0002).
+- Lots 3 à 6 : à faire.
 
 ## Conséquences
 

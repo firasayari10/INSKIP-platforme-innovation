@@ -38,7 +38,7 @@ const idea = {
 };
 const other = { ...idea, id: "33333333-3333-4333-8333-333333333333", external_ref: "IDEA-007", title: "Maintenance prédictive" };
 
-function fakeSupabase(opts: { idea?: boolean; hourCount?: number } = {}) {
+function fakeSupabase(opts: { idea?: boolean; hourCount?: number; creditExhausted?: boolean } = {}) {
   const ops: Op[] = [];
   const make = ((_url: string, key: string) => {
     const from = (table: string) => {
@@ -74,7 +74,13 @@ function fakeSupabase(opts: { idea?: boolean; hourCount?: number } = {}) {
       };
       return chain;
     };
-    return { from, auth: { getUser: async () => ({ data: { user: { id: "user-1" } }, error: null }) } };
+    const rpc = async (name: string, args: unknown) => {
+      ops.push({ key, table: `rpc:${name}`, kind: "insert", payload: args, filters: [] });
+      if (name === "reserve_ai_credit")
+        return opts.creditExhausted ? { data: null, error: { code: "CI001" } } : { data: "reservation-1", error: null };
+      return { data: 0, error: null };
+    };
+    return { from, rpc, auth: { getUser: async () => ({ data: { user: { id: "user-1" } }, error: null }) } };
   }) as unknown as typeof createClient;
   return { make, ops };
 }
@@ -140,7 +146,7 @@ describe("POST /api/idea-chat", () => {
     expect(mention.key).toBe(env.SUPABASE_PUBLISHABLE_KEY);
     expect(mention.filters).toContainEqual(["challenge_id", CHALLENGE_ID]);
 
-    const insert = ops.find(o => o.kind === "insert")!;
+    const insert = ops.find(o => o.kind === "insert" && !o.table.startsWith("rpc:"))!;
     expect(insert.key).toBe(env.SUPABASE_SECRET_KEY);
     expect(insert.table).toBe("idea_chat_messages");
     const rows = insert.payload as Record<string, unknown>[];
@@ -159,7 +165,7 @@ describe("POST /api/idea-chat", () => {
     const r = await handleIdeaChat(post({ ideaId: IDEA_ID, message: "Pourquoi ?" }), env, { createSupabase: make, caller });
     expect(r.status).toBe(502);
     expect(await r.json()).toEqual({ error: "quota_depasse" });
-    expect(ops.some(o => o.kind === "insert")).toBe(false);
+    expect(ops.some(o => o.kind === "insert" && o.table === "idea_chat_messages")).toBe(false);
   });
 
   test("réponse hors format deux fois : rejetée, rien n'est enregistré", async () => {
@@ -168,7 +174,10 @@ describe("POST /api/idea-chat", () => {
     const r = await handleIdeaChat(post({ ideaId: IDEA_ID, message: "Pourquoi ?" }), env, { createSupabase: make, caller });
     expect(r.status).toBe(502);
     expect(calls).toHaveLength(2);
-    expect(ops.some(o => o.kind === "insert")).toBe(false);
+    expect(ops.some(o => o.kind === "insert" && o.table === "idea_chat_messages")).toBe(false);
+    // Les deux appels ont bien consommé : ils sont facturés malgré le rejet.
+    const settle = ops.find(o => o.table === "rpc:settle_ai_credit")!.payload as { p_events: unknown[] };
+    expect(settle.p_events).toHaveLength(2);
   });
 });
 
@@ -185,7 +194,36 @@ describe("pseudonymisation de la discussion", () => {
     expect(sent).not.toContain("Marchand");
     expect(sent).not.toContain("06 12 34 56 78");
     expect(sent).toContain("[PERSONNE_1] dit que le budget réel est de 55 k€");
-    const saved = ops.find(o => o.kind === "insert")!.payload as { role: string; content: string }[];
+    const saved = ops.find(o => o.kind === "insert" && o.table === "idea_chat_messages")!.payload as { role: string; content: string }[];
     expect(saved[0]!.content).toContain("Julie Marchand"); // l'historique de l'évaluateur reste lisible pour lui
+  });
+});
+
+describe("crédits de la discussion", () => {
+  test("402 si le crédit est épuisé, sans appel à l'IA ni enregistrement", async () => {
+    const { make, ops } = fakeSupabase({ creditExhausted: true });
+    const { caller, calls } = capturingCaller();
+    const r = await handleIdeaChat(post({ ideaId: IDEA_ID, message: "Pourquoi ?" }), env, { createSupabase: make, caller });
+    expect(r.status).toBe(402);
+    expect(await r.json()).toEqual({ error: "credit_ia_epuise" });
+    expect(calls).toHaveLength(0);
+    expect(ops.some(o => o.table === "idea_chat_messages" && o.kind === "insert")).toBe(false);
+  });
+
+  test("réserve puis régularise au coût réel de la réponse", async () => {
+    const { make, ops } = fakeSupabase();
+    const { caller } = capturingCaller();
+    await handleIdeaChat(post({ ideaId: IDEA_ID, message: "Pourquoi ?" }), env, { createSupabase: make, caller });
+    expect(ops.find(o => o.table === "rpc:reserve_ai_credit")!.payload).toMatchObject({ p_kind: "discussion", p_user_id: "user-1" });
+    const settle = ops.find(o => o.table === "rpc:settle_ai_credit")!.payload as { p_events: { agent: string }[] };
+    expect(settle.p_events.map(e => e.agent)).toEqual(["conversation"]);
+  });
+
+  test("échec du fournisseur avant toute réponse : la réservation est libérée", async () => {
+    const { make, ops } = fakeSupabase();
+    const caller: AgentCaller = async () => err({ code: "quota_depasse", detail: "429" });
+    await handleIdeaChat(post({ ideaId: IDEA_ID, message: "Pourquoi ?" }), env, { createSupabase: make, caller });
+    expect(ops.some(o => o.table === "rpc:release_ai_credit")).toBe(true);
+    expect(ops.some(o => o.table === "rpc:settle_ai_credit")).toBe(false);
   });
 });

@@ -43,6 +43,17 @@ export interface EvaluationOptions {
   /** `false` pour « Relancer l'évaluation » : pas de lecture du cache (l'écriture reste). */
   useCache?: boolean;
   params?: CallParams;
+  /** Appelé après CHAQUE appel réel au fournisseur (y compris en cas d'échec ultérieur) : sert à
+   *  facturer exactement ce qui a été consommé. Les réponses servies par le cache ne sont pas comptées. */
+  onCall?: (call: ProviderCall) => void;
+}
+
+export interface ProviderCall {
+  agent: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  webResults: number;
 }
 
 const DEFAULT_PARAMS: CallParams = { provider: "inconnu", temperature: 0.2, maxTokens: 4096, thinking: false, webCount: 5 };
@@ -55,6 +66,7 @@ interface CallContext {
   cache?: AgentCache;
   useCache: boolean;
   params: CallParams;
+  onCall?: (call: ProviderCall) => void;
 }
 
 export interface AgentModels {
@@ -150,6 +162,13 @@ async function callValidated<S extends z.ZodType>(
     usage.promptTokens += response.value.usage.promptTokens;
     usage.completionTokens += response.value.usage.completionTokens;
     usage.costUsd += response.value.usage.costUsd;
+    ctx.onCall?.({
+      agent,
+      model: response.value.model,
+      inputTokens: response.value.usage.promptTokens,
+      outputTokens: response.value.usage.completionTokens,
+      webResults: response.value.citations.length,
+    });
 
     const parsed = schema.safeParse(response.value.json);
     if (parsed.success) {
@@ -192,6 +211,7 @@ export async function evaluateIdea(
     cache: options.cache,
     useCache: options.useCache ?? true,
     params: options.params ?? DEFAULT_PARAMS,
+    onCall: options.onCall,
   };
 
   // 1. Analyste : estimation des données manquantes (uniquement si nécessaire).

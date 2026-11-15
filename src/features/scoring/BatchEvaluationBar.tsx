@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ideasToEvaluate, runWithConcurrency, type BatchProgress } from "@/domain/batch";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { evaluationErrorMessages } from "@/lib/messages";
-import { evaluateAndWait, type EvaluationRequestError, type EvaluationSummary } from "@/lib/scoringData";
+import { evaluateAndWait, notifyCreditChanged, type EvaluationRequestError, type EvaluationSummary } from "@/lib/scoringData";
 
 /**
  * Deux idées évaluées en même temps : chaque idée mobilise déjà 5 à 6 agents, et le serveur
@@ -19,6 +19,8 @@ const FATAL: ReadonlySet<EvaluationRequestError> = new Set([
   "cle_invalide",
   "credit_insuffisant",
   "modele_indisponible",
+  "credit_ia_epuise",
+  "credit_indisponible",
 ]);
 
 export function BatchEvaluationBar({
@@ -52,6 +54,7 @@ export function BatchEvaluationBar({
       CONCURRENCY,
       async ideaId => {
         const r = await evaluateAndWait(client, token, ideaId, false);
+        notifyCreditChanged();
         if (!r.ok && FATAL.has(r.error)) {
           stopRequested.current = true;
           setFatal(evaluationErrorMessages[r.error]);

@@ -9,7 +9,9 @@ import {
   type MentionedIdea,
 } from "../domain/chat";
 import { jsonSchemaOf, type IdeaForScoring } from "../domain/scoring";
-import { callerFor, envSchema, fail, json, limiterFor, modelsFor, pseudonymizerFor } from "./evaluateHandler";
+import { callParamsFor, callerFor, envSchema, fail, json, limiterFor, modelsFor, priceTableFor, pseudonymizerFor } from "./evaluateHandler";
+import { createSupabaseCredits, type CreditService } from "./credits";
+import { reservationMicroEur, usageEvent, type UsageEvent } from "../domain/credits";
 import type { AgentCaller } from "./openrouter";
 
 /**
@@ -93,6 +95,7 @@ async function digestOf(db: SupabaseClient, ideaId: string, detailed: boolean): 
 
 export interface ChatDeps {
   caller?: AgentCaller;
+  credits?: CreditService;
   createSupabase?: typeof createClient;
 }
 
@@ -190,19 +193,48 @@ export async function handleIdeaChat(
 
   const caller = deps.caller ?? callerFor(env, limiterFor(env));
   const model = modelsFor(env).associe;
+
+  // Crédits : réservation du pire cas (deux tentatives, sortie maximale), régularisée au réel.
+  const prices = priceTableFor(env);
+  const params = callParamsFor(env);
+  const inputChars = messages.reduce((n, m) => n + m.content.length, 0);
+  const outputCap = params.maxTokens > 0 ? params.maxTokens : 4096;
+  const credits = deps.credits ?? createSupabaseCredits(adminDb);
+  const reservation = await credits.reserve({
+    userId,
+    amountMicroEur: reservationMicroEur(prices, [
+      { model, inputChars, maxOutputTokens: outputCap },
+      { model, inputChars, maxOutputTokens: outputCap },
+    ]),
+    kind: "discussion",
+    idempotencyKey: `discussion:${crypto.randomUUID()}`,
+    challengeId: idea.challenge_id,
+    ideaId: idea.id,
+  });
+  if (!reservation.ok) {
+    return reservation.error === "credit_ia_epuise" ? fail(402, "credit_ia_epuise") : fail(503, "credit_indisponible");
+  }
+
+  const events: UsageEvent[] = [];
   let output: z.infer<typeof chatOutputSchema> | null = null;
   let usedModel = model;
-  for (let attempt = 0; attempt < 2 && !output; attempt++) {
-    const r = await caller({ model, messages, schemaName: "conversation", schema: jsonSchemaOf(chatOutputSchema), web: false });
-    if (!r.ok) {
-      console.error(`[idea-chat] échec : ${r.error.code} (${r.error.detail})`);
-      return fail(502, r.error.code);
+  try {
+    for (let attempt = 0; attempt < 2 && !output; attempt++) {
+      const r = await caller({ model, messages, schemaName: "conversation", schema: jsonSchemaOf(chatOutputSchema), web: false });
+      if (!r.ok) {
+        console.error(`[idea-chat] échec : ${r.error.code} (${r.error.detail})`);
+        return fail(502, r.error.code);
+      }
+      events.push(usageEvent(prices, "conversation", r.value.model, r.value.usage.promptTokens, r.value.usage.completionTokens));
+      const parsed = chatOutputSchema.safeParse(r.value.json);
+      if (parsed.success) {
+        output = parsed.data;
+        usedModel = r.value.model;
+      }
     }
-    const parsed = chatOutputSchema.safeParse(r.value.json);
-    if (parsed.success) {
-      output = parsed.data;
-      usedModel = r.value.model;
-    }
+  } finally {
+    // Facture exactement les appels faits (y compris une réponse rejetée), sinon libère.
+    await credits.settle(reservation.value, events);
   }
   if (!output) return fail(502, "reponse_invalide");
 

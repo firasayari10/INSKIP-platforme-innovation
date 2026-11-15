@@ -15,6 +15,7 @@ import {
 import {
   evaluateAndWait,
   getIdeaScoring,
+  notifyCreditChanged,
   removeHumanScore,
   saveHumanScore,
   type Assessment,
@@ -73,6 +74,7 @@ export function EvaluationPanel({ challengeId, ideaId }: { challengeId: string; 
     setRunning(true);
     setRunError(null);
     const result = await evaluateAndWait(client, state.session.access_token, ideaId, force, () => !mounted.current);
+    notifyCreditChanged();
     if (!mounted.current) return;
     setRunning(false);
     if (!result.ok) setRunError(evaluationErrorMessages[result.error]);

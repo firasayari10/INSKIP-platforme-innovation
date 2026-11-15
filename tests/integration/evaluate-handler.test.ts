@@ -52,7 +52,7 @@ const criteriaRows = ["impact", "faisabilite"].map(key => ({
   anchors: {},
 }));
 
-function fakeSupabase(opts: { user?: boolean; idea?: boolean; previous?: unknown[]; hourCount?: number } = {}) {
+function fakeSupabase(opts: { user?: boolean; idea?: boolean; previous?: unknown[]; hourCount?: number; creditExhausted?: boolean; insertConflict?: boolean } = {}) {
   const ops: Op[] = [];
   const data: Record<string, unknown> = {
     ideas: opts.idea === false ? null : ideaRow,
@@ -69,7 +69,8 @@ function fakeSupabase(opts: { user?: boolean; idea?: boolean; previous?: unknown
       const op: Op = { key, table, kind: "select", filters: [] };
       ops.push(op);
       const result = () => {
-        if (op.kind === "insert" && table === "evaluations") return { data: { id: "eval-1" }, error: null };
+        if (op.kind === "insert" && table === "evaluations")
+          return opts.insertConflict ? { data: null, error: { code: "23505" } } : { data: { id: "eval-1" }, error: null };
         if (op.kind !== "select") return { data: null, error: null };
         if (op.filters.some(([c]) => c === "created_at>=")) return { data: null, count: opts.hourCount ?? 0, error: null };
         return { data: data[table], error: null };
@@ -93,6 +94,13 @@ function fakeSupabase(opts: { user?: boolean; idea?: boolean; previous?: unknown
     };
     return {
       from: builder,
+      // Fonctions de la base (crédits IA).
+      rpc: async (name: string, args: unknown) => {
+        ops.push({ key, table: `rpc:${name}`, kind: "insert", payload: args, filters: [] });
+        if (name === "reserve_ai_credit")
+          return opts.creditExhausted ? { data: null, error: { code: "CI001", message: "credit_ia_epuise" } } : { data: "reservation-1", error: null };
+        return { data: 0, error: null };
+      },
       auth: {
         getUser: async () =>
           opts.user === false ? { data: { user: null }, error: { message: "jwt" } } : { data: { user: { id: "user-1" } }, error: null },
@@ -258,7 +266,7 @@ describe("POST /api/evaluate-idea", () => {
     expect(cacheWrites).toHaveLength(3);
     expect(cacheWrites.every(w => w.key === env.SUPABASE_SECRET_KEY)).toBe(true);
     expect(ops.filter(o => o.table === "agent_outputs").every(o => o.filters.some(([c, v]) => c === "challenge_id" && v === ideaRow.challenge_id) || o.kind === "insert")).toBe(true);
-    const writes = ops.filter(o => o.kind !== "select" && o.table !== "agent_outputs");
+    const writes = ops.filter(o => o.kind !== "select" && o.table !== "agent_outputs" && !o.table.startsWith("rpc:"));
     expect(writes.map(w => `${w.kind}:${w.table}`)).toEqual([
       "update:evaluations", // clôture des passages restés bloqués
       "insert:evaluations",
@@ -293,7 +301,8 @@ describe("POST /api/evaluate-idea", () => {
     const r = await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, { createSupabase: make, caller: failing, ...jobs });
     expect(r.status).toBe(202); // l'échec est constaté en arrière-plan et enregistré
     await jobs.settle();
-    expect(ops.at(-1)).toMatchObject({ kind: "update", table: "evaluations", payload: { status: "failed", error_code: "credit_insuffisant" } });
+    expect(ops.find(o => o.kind === "update" && o.table === "evaluations" && (o.payload as { error_code?: string }).error_code === "credit_insuffisant")).toMatchObject({ payload: { status: "failed", error_code: "credit_insuffisant" } });
+    expect(ops.at(-1)!.table).toBe("rpc:release_ai_credit"); // aucun appel facturable : réservation libérée
   });
 });
 
@@ -390,5 +399,71 @@ describe("pseudonymisation avant l'envoi à l'IA", () => {
     const usage = (completed.payload as { usage: { pseudonymisation: Record<string, number> } }).usage;
     expect(usage.pseudonymisation).toEqual({ personnes: 1, emails: 1, telephones: 1, identifiants: 0 });
     expect(JSON.stringify(completed.payload)).not.toContain("Marchand");
+  });
+});
+
+describe("crédits IA", () => {
+  test("402 si le crédit du mois est épuisé : aucun appel à l'IA, aucune évaluation créée", async () => {
+    const { make, ops } = fakeSupabase({ creditExhausted: true });
+    let called = false;
+    const r = await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, {
+      createSupabase: make,
+      caller: async x => ((called = true), okCaller(x)),
+    });
+    expect(r.status).toBe(402);
+    expect(await r.json()).toEqual({ error: "credit_ia_epuise" });
+    expect(called).toBe(false);
+    expect(ops.some(o => o.kind === "insert" && o.table === "evaluations")).toBe(false);
+  });
+
+  test("réserve avant l'appel (clé serveur, montant > 0), puis régularise au coût réel de chaque appel", async () => {
+    const { make, ops } = fakeSupabase();
+    const jobs = backgroundCatcher();
+    await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, { createSupabase: make, caller: okCaller, ...jobs });
+    await jobs.settle();
+    const reserve = ops.find(o => o.table === "rpc:reserve_ai_credit")!;
+    expect(reserve.key).toBe(env.SUPABASE_SECRET_KEY);
+    expect(reserve.payload).toMatchObject({ p_user_id: "user-1", p_kind: "evaluation", p_challenge_id: ideaRow.challenge_id, p_idea_id: IDEA_ID });
+    expect((reserve.payload as { p_amount_micro_eur: number }).p_amount_micro_eur).toBeGreaterThan(0);
+    const settle = ops.find(o => o.table === "rpc:settle_ai_credit")!;
+    const p = settle.payload as { p_reservation_id: string; p_actual_micro_eur: number; p_events: { cost_micro_eur: number; agent: string }[]; p_evaluation_id: string };
+    expect(p.p_reservation_id).toBe("reservation-1");
+    expect(p.p_evaluation_id).toBe("eval-1");
+    expect(p.p_events.map(e => e.agent).sort()).toEqual(["associe", "consultant_faisabilite", "consultant_impact"]);
+    expect(p.p_actual_micro_eur).toBe(p.p_events.reduce((t, e) => t + e.cost_micro_eur, 0));
+    // La réservation (pire cas) couvre le coût réel.
+    expect((reserve.payload as { p_amount_micro_eur: number }).p_amount_micro_eur).toBeGreaterThanOrEqual(p.p_actual_micro_eur);
+  });
+
+  test("en cas d'échec d'un agent, seuls les appels effectivement faits sont facturés", async () => {
+    const { make, ops } = fakeSupabase();
+    const failing: AgentCaller = async r => (r.schemaName === "associe" ? err({ code: "quota_depasse", detail: "429" }) : okCaller(r));
+    const jobs = backgroundCatcher();
+    await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, { createSupabase: make, caller: failing, ...jobs });
+    await jobs.settle();
+    const p = ops.find(o => o.table === "rpc:settle_ai_credit")!.payload as { p_events: { agent: string }[] };
+    expect(p.p_events.map(e => e.agent).sort()).toEqual(["consultant_faisabilite", "consultant_impact"]);
+  });
+
+  test("si l'évaluation ne peut pas être créée (double clic), la réservation est libérée", async () => {
+    const { make, ops } = fakeSupabase({ insertConflict: true });
+    const r = await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, { createSupabase: make, caller: okCaller });
+    expect(r.status).toBe(409);
+    expect(ops.find(o => o.table === "rpc:release_ai_credit")!.payload).toEqual({ p_reservation_id: "reservation-1" });
+  });
+
+  test("une évaluation entièrement servie par le cache libère la réservation (rien à facturer)", async () => {
+    const { createMemoryAgentCache } = await import("@/server/agentCache");
+    const agentCache = createMemoryAgentCache();
+    const first = fakeSupabase();
+    const jobs1 = backgroundCatcher();
+    await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, { createSupabase: first.make, caller: okCaller, agentCache, ...jobs1 });
+    await jobs1.settle();
+    const second = fakeSupabase();
+    const jobs2 = backgroundCatcher();
+    await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, { createSupabase: second.make, caller: okCaller, agentCache, ...jobs2 });
+    await jobs2.settle();
+    expect(second.ops.some(o => o.table === "rpc:settle_ai_credit")).toBe(false);
+    expect(second.ops.some(o => o.table === "rpc:release_ai_credit")).toBe(true);
   });
 });

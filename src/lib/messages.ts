@@ -115,6 +115,10 @@ export const evaluationErrorMessages: Record<import("./scoringData").EvaluationR
   trop_de_demandes:
     "Vous avez lancé beaucoup d'évaluations en une heure : la limite est atteinte pour protéger le budget. Réessayez dans quelques minutes.",
   evaluation_echouee: "L'évaluation n'a pas abouti ; aucune note n'a été enregistrée. Relancez-la.",
+  credit_ia_epuise:
+    "Votre crédit IA du mois est épuisé : aucune évaluation ni réponse de l'IA ne peut être lancée avant le 1er du mois prochain. Contactez l'administrateur pour un recrédit.",
+  credit_indisponible:
+    "Le suivi des crédits IA est momentanément indisponible ; par sécurité, l'IA n'a pas été appelée. Réessayez dans quelques minutes.",
   service_non_configure:
     "L'évaluation par les agents n'est pas encore configurée sur ce serveur (clé du fournisseur d'IA manquante). Contactez l'administrateur.",
   cle_invalide: "La clé du fournisseur d'IA est refusée. Contactez l'administrateur de la plateforme.",

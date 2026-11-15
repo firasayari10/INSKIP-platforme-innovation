@@ -11,6 +11,7 @@ import {
   evaluateAndWait,
   listChatMessages,
   listMentionCandidates,
+  notifyCreditChanged,
   sendChatMessage,
   type ChatMessageRow,
 } from "@/lib/scoringData";
@@ -142,6 +143,7 @@ function ChatDrawer({
     setError(null);
     setNotice(null);
     const r = await sendChatMessage(state.session.access_token, ideaId, message);
+    notifyCreditChanged();
     setPending(false);
     if (!r.ok) {
       setError(evaluationErrorMessages[r.error]);
@@ -173,6 +175,7 @@ function ChatDrawer({
     setReevaluating(true);
     setError(null);
     const r = await evaluateAndWait(client, state.session.access_token, ideaId, true, () => false, true);
+    notifyCreditChanged();
     setReevaluating(false);
     if (!r.ok) return setError(evaluationErrorMessages[r.error]);
     setExtra([]);

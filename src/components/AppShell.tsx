@@ -1,6 +1,7 @@
 import { LogOut } from "lucide-react";
 import { useState } from "react";
 import { Outlet } from "react-router";
+import { CreditBadge } from "@/components/CreditBadge";
 import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/features/auth/AuthLayout";
 import { useAuth } from "@/features/auth/AuthProvider";
@@ -25,6 +26,7 @@ export function AppShell() {
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
           <BrandMark />
           <div className="flex min-w-0 items-center gap-3">
+            <CreditBadge />
             {email && (
               <span className="hidden truncate text-sm text-muted-foreground sm:block" title={email}>
                 {email}

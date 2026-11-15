@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { PROMPT_VERSION, type CriterionForScoring } from "../domain/scoring";
+import { missingFields, PROMPT_VERSION, type CriterionForScoring } from "../domain/scoring";
 import {
   evaluateIdea,
   type AgentModels,
@@ -16,6 +16,8 @@ import { evaluationInputKey } from "../domain/cache";
 import { createPseudonymizer, type Pseudonymizer, type PseudonymizationReport } from "../domain/pseudonymize";
 import { sha256Hex } from "../lib/hash";
 import { createSupabaseAgentCache, type AgentCache } from "./agentCache";
+import { createSupabaseCredits, type CreditService } from "./credits";
+import { parsePriceTable, reservationMicroEur, usageEvent, type PriceTable, type UsageEvent } from "../domain/credits";
 import { evaluatorNotes } from "../domain/chat";
 
 /**
@@ -57,6 +59,10 @@ export const envSchema = z
     LLM_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(600_000).default(180_000),
     EVALUATIONS_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(60),
     AGENT_CACHE_MAX_AGE_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
+    // Barème des crédits IA (€ par million de jetons) : par modèle (JSON) et par défaut.
+    AI_PRICES_EUR_PER_MILLION: z.string().max(5000).optional(),
+    AI_DEFAULT_PRICE_INPUT: z.coerce.number().min(0).max(1000).default(1),
+    AI_DEFAULT_PRICE_OUTPUT: z.coerce.number().min(0).max(1000).default(4),
     CHAT_MESSAGES_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(120),
     APP_URL: z.url().default("http://localhost:3000"),
   })
@@ -82,6 +88,8 @@ export type ApiErrorCode =
   | "idee_introuvable"
   | "evaluation_en_cours"
   | "trop_de_demandes"
+  | "credit_ia_epuise"
+  | "credit_indisponible"
   | "enregistrement_impossible"
   | EvaluationErrorCode;
 
@@ -125,6 +133,10 @@ export function callParamsFor(env: ServerEnv): CallParams {
   return { provider: "openrouter", temperature: 0.2, maxTokens: 0, thinking: false, webCount: env.WEB_MAX_RESULTS };
 }
 
+export function priceTableFor(env: ServerEnv): PriceTable {
+  return parsePriceTable(env.AI_PRICES_EUR_PER_MILLION, { input: env.AI_DEFAULT_PRICE_INPUT, output: env.AI_DEFAULT_PRICE_OUTPUT });
+}
+
 export function callerFor(env: ServerEnv, limiter: RateLimiter): AgentCaller {
   if (env.provider === "zai") {
     return createZaiCaller({
@@ -164,6 +176,8 @@ export interface HandlerDeps {
   /** Transport des agents (remplaçable en test). */
   caller?: AgentCaller;
   createSupabase?: typeof createClient;
+  /** Crédits IA (par défaut : fonctions de la base ; remplaçable en test). */
+  credits?: CreditService;
   /** Cache des sorties d'agents (par défaut : table agent_outputs ; remplaçable en test). */
   agentCache?: AgentCache;
   /** Prise en charge du travail d'arrière-plan (ex. `waitUntil` sur Vercel). */
@@ -306,6 +320,29 @@ export async function handleEvaluateIdea(
     .eq("status", "running")
     .lt("created_at", new Date(Date.now() - RUNNING_TIMEOUT_MS).toISOString());
 
+  // Crédits : réservation pessimiste du pire cas (tous les agents appelés, sortie maximale).
+  const prices = priceTableFor(env);
+  const params = callParamsFor(env);
+  const ideaChars = JSON.stringify(input.idea).length + (input.challenge.context?.length ?? 0) + (notes?.length ?? 0);
+  const outputCap = params.maxTokens > 0 ? params.maxTokens : 4096;
+  const planned = [
+    ...(missingFields(input.idea).length > 0 ? [{ model: models.analyste, inputChars: 6_000 + ideaChars, maxOutputTokens: outputCap, webResults: env.WEB_MAX_RESULTS }] : []),
+    ...criteria.map(() => ({ model: models.consultant, inputChars: 7_000 + ideaChars, maxOutputTokens: outputCap, webResults: env.WEB_MAX_RESULTS })),
+    { model: models.associe, inputChars: 12_000 + ideaChars, maxOutputTokens: outputCap },
+  ];
+  const credits = deps.credits ?? createSupabaseCredits(adminDb);
+  const reservation = await credits.reserve({
+    userId,
+    amountMicroEur: reservationMicroEur(prices, planned),
+    kind: "evaluation",
+    idempotencyKey: `evaluation:${crypto.randomUUID()}`,
+    challengeId: idea.challenge_id,
+    ideaId: idea.id,
+  });
+  if (!reservation.ok) {
+    return reservation.error === "credit_ia_epuise" ? fail(402, "credit_ia_epuise") : fail(503, "credit_indisponible");
+  }
+
   const { data: created, error: createError } = await adminDb
     .from("evaluations")
     .insert({
@@ -321,8 +358,9 @@ export async function handleEvaluateIdea(
     })
     .select("id")
     .single();
-  if (createError?.code === "23505") return fail(409, "evaluation_en_cours"); // double clic, deux onglets
   if (createError || !created) {
+    await credits.release(reservation.value);
+    if (createError?.code === "23505") return fail(409, "evaluation_en_cours"); // double clic, deux onglets
     console.error("[evaluate-idea] création impossible :", createError?.code);
     return fail(500, "enregistrement_impossible");
   }
@@ -337,10 +375,13 @@ export async function handleEvaluateIdea(
     adminDb,
     noteMessageIds,
     masked: pseudo.report(),
+    credits,
+    reservationId: reservation.value,
+    prices,
     options: {
       cache: deps.agentCache ?? createSupabaseAgentCache(adminDb, idea.challenge_id, env.AGENT_CACHE_MAX_AGE_DAYS),
       useCache: !body.force,
-      params: callParamsFor(env),
+      params,
     },
   });
   if (deps.background) deps.background(job);
@@ -349,7 +390,23 @@ export async function handleEvaluateIdea(
   return json(202, { evaluationId: created.id, cached: false, status: "running" });
 }
 
-async function runAndStore(args: {
+/** Lance l'évaluation puis régularise les crédits au coût réel des appels faits, quoi qu'il arrive. */
+async function runAndStore(args: Parameters<typeof runEvaluation>[0] & {
+  credits: CreditService;
+  reservationId: string;
+  prices: PriceTable;
+}): Promise<void> {
+  const events: UsageEvent[] = [];
+  const onCall = (c: { agent: string; model: string; inputTokens: number; outputTokens: number; webResults: number }) =>
+    events.push(usageEvent(args.prices, c.agent, c.model, c.inputTokens, c.outputTokens, c.webResults));
+  try {
+    await runEvaluation({ ...args, options: { ...args.options, onCall } });
+  } finally {
+    await args.credits.settle(args.reservationId, events, args.evaluationId);
+  }
+}
+
+async function runEvaluation(args: {
   evaluationId: string;
   ideaId: string;
   challengeId: string;

@@ -149,6 +149,24 @@ masquée.
 - Les tests n'appellent jamais le fournisseur d'IA : ils utilisent des réponses fictives internes
   aux tests, et tout appel réseau sortant y est interdit (`tests/setup/no-network.ts`).
 
+### Crédits IA par utilisateur (ADR 0003 §3)
+
+- Chaque utilisateur dispose de **5 € par mois calendaire** (heure de Paris) ; le solde repart le
+  1er du mois, l'historique est conservé.
+- Avant chaque évaluation ou message de discussion, le serveur **réserve** le pire cas (tous les
+  agents, sortie maximale, + 20 %) ; à la fin, il **régularise au coût réel** de chaque appel
+  effectivement fait (même en cas d'échec) et rend le reliquat. Une évaluation servie par le cache
+  ne coûte rien. Solde insuffisant → refus clair (HTTP 402), aucun appel à l'IA.
+- Coût = jetons × barème (`AI_PRICES_EUR_PER_MILLION`, `AI_DEFAULT_PRICE_*`), en micro-euros
+  entiers. Le barème est à renseigner avec le tarif réel de l'offre utilisée.
+- Écritures uniquement par le serveur, via des fonctions de la base ; journal de consommation
+  immuable (ni modification ni suppression, même par l'administrateur de la base). Chaque
+  utilisateur ne voit que sa propre consommation.
+- L'en-tête affiche le **crédit restant** (alerte à 80 % utilisés, « épuisé » à 0) ; un clic donne
+  le détail du mois et les dernières consommations par agent.
+- Recrédit : par l'opérateur uniquement (`grant_ai_credit` avec la clé serveur), pas par les
+  utilisateurs ni le propriétaire d'un challenge.
+
 ### Limitation de débit
 
 - **Vers le fournisseur d'IA** (`src/server/rateLimiter.ts`), partagée par toutes les évaluations

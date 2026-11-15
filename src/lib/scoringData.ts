@@ -208,6 +208,8 @@ export type EvaluationRequestError =
   | "idee_introuvable"
   | "evaluation_en_cours"
   | "trop_de_demandes"
+  | "credit_ia_epuise"
+  | "credit_indisponible"
   | "evaluation_echouee"
   | "service_non_configure"
   | "cle_invalide"
@@ -224,6 +226,8 @@ const KNOWN: ReadonlySet<string> = new Set([
   "idee_introuvable",
   "evaluation_en_cours",
   "trop_de_demandes",
+  "credit_ia_epuise",
+  "credit_indisponible",
   "service_non_configure",
   "cle_invalide",
   "credit_insuffisant",
@@ -420,5 +424,55 @@ export async function listMentionCandidates(
     .order("external_ref");
   if (error) return err(toError(error.code, error.message));
   const parsed = z.array(z.object({ id: z.string(), external_ref: z.string(), title: z.string() })).safeParse(data);
+  return parsed.success ? ok(parsed.data) : err("donnees_invalides");
+}
+
+// ---------- Crédits IA de l'utilisateur ----------
+
+/** Notifie l'en-tête qu'une consommation vient d'avoir lieu (rafraîchit l'indicateur de crédits). */
+export const notifyCreditChanged = () => window.dispatchEvent(new Event("ai-credit-changed"));
+
+const creditSchema = z.object({
+  month: z.string(),
+  allocation_micro_eur: z.coerce.number(),
+  granted_micro_eur: z.coerce.number(),
+  consumed_micro_eur: z.coerce.number(),
+  reserved_micro_eur: z.coerce.number(),
+  remaining_micro_eur: z.coerce.number(),
+  evaluations_count: z.coerce.number(),
+  discussion_messages_count: z.coerce.number(),
+});
+export type MyCredit = z.infer<typeof creditSchema>;
+
+export async function getMyCredit(client: SupabaseClient): Promise<Result<MyCredit, DataError>> {
+  const { data, error } = await client.rpc("my_ai_credit");
+  if (error) return err(toError(error.code, error.message));
+  const row = Array.isArray(data) ? data[0] : data;
+  const parsed = creditSchema.safeParse(row);
+  return parsed.success ? ok(parsed.data) : err("donnees_invalides");
+}
+
+const usageRowSchema = z.object({
+  id: z.coerce.number(),
+  kind: z.enum(["usage", "grant"]),
+  amount_micro_eur: z.coerce.number(),
+  operation: z.string().nullable(),
+  agent: z.string().nullable(),
+  model: z.string().nullable(),
+  input_tokens: z.coerce.number().nullable(),
+  output_tokens: z.coerce.number().nullable(),
+  created_at: z.string(),
+});
+export type UsageRow = z.infer<typeof usageRowSchema>;
+
+/** Dernières lignes du journal de consommation de l'utilisateur (RLS : les siennes seulement). */
+export async function listMyUsage(client: SupabaseClient, limit = 15): Promise<Result<UsageRow[], DataError>> {
+  const { data, error } = await client
+    .from("ai_credit_ledger")
+    .select("id, kind, amount_micro_eur, operation, agent, model, input_tokens, output_tokens, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) return err(toError(error.code, error.message));
+  const parsed = z.array(usageRowSchema).safeParse(data);
   return parsed.success ? ok(parsed.data) : err("donnees_invalides");
 }
