@@ -215,7 +215,7 @@ function CodeStep({
             autoComplete="one-time-code"
             autoFocus
             maxLength={14}
-            placeholder="123456"
+            placeholder="••••••••"
             value={code}
             onChange={e => setCode(e.target.value)}
             aria-invalid={error ? true : undefined}

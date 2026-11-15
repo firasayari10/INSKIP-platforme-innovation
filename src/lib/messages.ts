@@ -11,7 +11,7 @@ export const emailErrorMessages: Record<EmailError, string> = {
 
 export const otpErrorMessages: Record<OtpError, string> = {
   otp_empty: "Saisissez le code reçu par e-mail.",
-  otp_invalid_format: "Le code est composé uniquement de chiffres (6 en général).",
+  otp_invalid_format: "Le code reçu par e-mail ne contient que des chiffres. Vérifiez votre saisie.",
 };
 
 export const authErrorMessages: Record<AuthErrorCode, string> = {
