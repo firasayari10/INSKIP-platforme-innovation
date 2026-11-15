@@ -18,3 +18,20 @@
     transition: none !important;
   }
 }
+
+/* Impression du rapport : marges de page, couleurs fidèles, pas de coupure au milieu d'une ligne de tableau. */
+@media print {
+  @page {
+    size: A4;
+    margin: 18mm 16mm;
+  }
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background: white;
+  }
+  .report tr,
+  .report li {
+    break-inside: avoid;
+  }
+}

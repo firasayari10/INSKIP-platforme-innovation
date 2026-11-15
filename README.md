@@ -1,196 +1,352 @@
-# Challenge Innovation — évaluation des idées
+# Challenge Innovation — plateforme d'évaluation des idées
 
-Application web pour évaluer les idées déposées lors d'un challenge d'innovation interne :
-import, notation assistée par IA, détection des doublons et shortlist pour le jury.
+Application web qui aide un cabinet de conseil à **évaluer les idées déposées par les salariés
+d'un client lors d'un challenge d'innovation interne**, puis à présenter une **shortlist argumentée
+au jury**. Elle importe l'export du formulaire, repère les anomalies et les doublons, fait noter
+chaque idée par une équipe d'agents IA (l'humain valide toujours la note finale) et produit un
+rapport prêt à envoyer au client.
 
-> Documentation en cours de rédaction : les parties **Cadrage**, **Conception** et
-> **Hypothèses** seront complétées au fil des fonctionnalités.
+**Sommaire**
 
-## Démarrage local
+1. [Mise en route pas à pas](#1-mise-en-route-pas-à-pas)
+2. [Utiliser l'application](#2-utiliser-lapplication)
+3. [Cadrage du besoin](#3-cadrage-du-besoin)
+4. [Architecture et décisions techniques](#4-architecture-et-décisions-techniques)
+5. [Hypothèses](#5-hypothèses)
+6. [Limites connues et suites](#6-limites-connues-et-suites)
+7. [Déploiement sur Vercel](#7-déploiement-sur-vercel)
+8. [Annexes : configuration détaillée](#8-annexes--configuration-détaillée)
 
-Prérequis : [Bun](https://bun.sh) 1.2+ et un projet [Supabase](https://supabase.com).
+---
+
+## 1. Mise en route pas à pas
+
+Comptez une trentaine de minutes la première fois.
+
+### Ce qu'il vous faut
+
+| Outil | Pourquoi | Lien |
+|---|---|---|
+| **Bun** 1.2 ou plus | installe, lance et teste l'application | https://bun.sh |
+| **Git** | récupérer le code | https://git-scm.com |
+| Un compte **Supabase** (gratuit) | base de données et connexion des utilisateurs | https://supabase.com |
+| Une clé d'**IA** : Z.ai (modèles GLM) **ou** OpenRouter | notation des idées par les agents | https://z.ai · https://openrouter.ai |
+| *(facultatif en local)* un compte **Upstash** (gratuit) | limitation de débit partagée, obligatoire en production | https://upstash.com |
+
+### Étape 1 — Récupérer le projet et installer les dépendances
 
 ```bash
+git clone https://github.com/firasayari10/INSKIP-platforme-innovation.git
+cd INSKIP-platforme-innovation
 bun install
-cp .env.example .env.local   # puis renseigner les valeurs
-bun dev                      # http://localhost:3000
 ```
+
+### Étape 2 — Créer la base de données Supabase
+
+1. Sur https://supabase.com, créez un projet (choisissez une **région européenne**).
+2. Notez la **référence du projet** (dans l'adresse : `https://supabase.com/dashboard/project/<référence>`).
+3. Reliez le projet puis créez les tables (les 5 migrations du dossier `supabase/migrations/`) :
+
+   ```bash
+   bunx supabase login
+   bunx supabase link --project-ref <référence>
+   bunx supabase db push --remote
+   ```
+
+   > `--remote` est indispensable : sans lui, la CLI vise une base locale.
+
+### Étape 3 — Régler la connexion des utilisateurs (Supabase)
+
+Dans le tableau de bord Supabase, menu **Authentication** :
+
+1. **Sign In / Providers** : activez **Email** et **désactivez « Allow new users to sign up »**
+   (l'accès se fait uniquement sur invitation).
+2. **URL Configuration** : *Site URL* = `http://localhost:3000` ; *Redirect URLs* : ajoutez
+   `http://localhost:3000/auth/callback`.
+3. **Users → Add user → Create new user** : créez votre compte (cochez *Auto Confirm User*).
+
+> Les modèles d'e-mail et l'envoi d'invitations demandent un SMTP : voir l'[annexe 8.1](#81-supabase--e-mails-et-invitations).
+
+### Étape 4 — Renseigner les variables d'environnement
+
+```bash
+cp .env.example .env.local
+```
+
+Ouvrez `.env.local` et remplissez **au minimum** :
+
+| Variable | Où la trouver |
+|---|---|
+| `BUN_PUBLIC_SUPABASE_URL` et `SUPABASE_URL` | Supabase → Project Settings → API → *Project URL* |
+| `BUN_PUBLIC_SUPABASE_PUBLISHABLE_KEY` et `SUPABASE_PUBLISHABLE_KEY` | Supabase → Project Settings → API Keys → *Publishable key* |
+| `SUPABASE_SECRET_KEY` | Supabase → API Keys → *Secret keys* (**jamais** dans une variable `BUN_PUBLIC_`) |
+| `ZAI_API_KEY` **ou** (`LLM_PROVIDER=openrouter` + `OPENROUTER_API_KEY`) | console de votre fournisseur d'IA |
+| `AI_PRICES_EUR_PER_MILLION` | le tarif réel de votre offre IA (sert au décompte des crédits) |
+
+Les autres variables ont des valeurs par défaut prudentes (détail en [annexe 8.3](#83-variables-denvironnement)).
+`.env.local` est ignoré par Git : **aucun secret ne doit être commité**.
+
+### Étape 5 — Lancer l'application
+
+```bash
+bun dev
+```
+
+Ouvrez http://localhost:3000, saisissez votre adresse e-mail et cliquez sur le lien reçu.
+
+### Étape 6 — Premier parcours (5 minutes)
+
+1. **Créer un challenge** (ex. « Challenge innovation 2026 », client « Hexavia »).
+2. **Importer** le fichier d'exemple `tests/fixtures/idees_hexavia.csv` : l'analyse signale
+   40 idées, 6 doublons possibles et les anomalies (budgets manquants, date au format français…).
+3. Ouvrir une idée : son **évaluation démarre automatiquement** (1 à 3 minutes).
+4. Valider ou corriger les notes, discuter de la décision avec l'IA (✨).
+5. Ouvrir **« Rapport pour le jury »** et l'enregistrer en PDF.
+
+### Commandes utiles
 
 | Commande | Rôle |
 |---|---|
-| `bun dev` | Serveur de développement avec rechargement à chaud |
-| `bun test` | Tests automatisés |
-| `bun run typecheck` | Vérification des types TypeScript |
-| `bun run build` | Build de production dans `dist/` |
+| `bun dev` | serveur de développement (rechargement automatique) |
+| `bun test` | tests automatisés (aucun appel réseau : tout est simulé) |
+| `bun run typecheck` | vérification des types TypeScript |
+| `bun run build` | version de production dans `dist/` |
+| `bunx supabase db push --remote` | appliquer les nouvelles migrations |
+| `bun run scripts/check-redis-gate.ts` | vérifier les scripts de limitation sur une vraie base Upstash |
 
-## Configuration de l'authentification (Supabase)
+---
 
-Connexion sans mot de passe, réservée aux personnes invitées (voir
-[ADR 0001](docs/adr/0001-authentification.md)). Dans le tableau de bord Supabase :
+## 2. Utiliser l'application
 
-1. **Authentication → Sign In / Providers → Email** : activer le fournisseur E-mail.
-2. **Authentication → Sign In / Providers** : **désactiver « Allow new users to sign up »**.
-   C'est ce réglage qui garantit l'accès sur invitation.
-3. **Authentication → URL Configuration** :
-   - *Site URL* : l'adresse de l'application, **sans chemin** (`http://localhost:3000` en local,
-     `https://<app>.vercel.app` en production) ;
-   - *Redirect URLs* : `http://localhost:3000/auth/callback` et
-     `https://<app>.vercel.app/auth/callback` (ajouter aussi le motif des previews Vercel si besoin).
-4. **Authentication → Emails → Magic Link** : le lien pointe directement vers l'application
-   (`token_hash`) et l'e-mail contient aussi le code. Ce format fonctionne dans n'importe quel
-   navigateur et résiste aux antivirus de messagerie qui « cliquent » les liens à l'avance.
-
-   ```html
-   <h2>Connexion à Challenge Innovation</h2>
-   <p><a href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=email">Se connecter</a></p>
-   <p>Ou saisissez ce code : <strong>{{ .Token }}</strong></p>
-   <p>Ce lien et ce code sont valables une heure. Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.</p>
-   ```
-5. **Authentication → Emails → Invite user** :
-
-   ```html
-   <h2>Vous êtes invité sur Challenge Innovation</h2>
-   <p>Vous avez été invité à évaluer les idées d'un challenge d'innovation.</p>
-   <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite">Accepter l'invitation</a></p>
-   <p>Ce lien est valable 24 heures. Ensuite, connectez-vous simplement avec votre adresse e-mail.</p>
-   ```
-6. **Authentication → Users → Invite user** : inviter chaque évaluateur. Aucun mot de passe
-   n'est demandé : les connexions suivantes se font par lien ou par code.
-7. Copier l'URL du projet et la **clé publishable** (Project Settings → API Keys) dans
-   `.env.local`. Ne jamais utiliser la clé secrète côté navigateur : l'application refuse
-   de démarrer si c'est le cas.
-
-**Envoi des e-mails** : le service d'e-mail intégré de Supabase est limité à quelques envois
-par heure et n'écrit qu'aux membres de l'organisation Supabase. Pour inviter d'autres
-personnes, configurer un SMTP (Authentication → Emails → SMTP Settings).
-
-## Base de données (migrations)
-
-Le schéma est versionné dans `supabase/migrations/`, avec ses tests dans `supabase/tests/`.
-
-```bash
-bunx supabase link --project-ref <ref-du-projet>   # une seule fois
-bunx supabase db push --remote                     # applique les nouvelles migrations
+```mermaid
+flowchart LR
+    A["Importer le CSV<br/>analyse : anomalies,<br/>doublons, budgets"] --> B["Consulter et filtrer<br/>toutes les colonnes,<br/>recherche, filtres"]
+    B --> C["Évaluation par les agents<br/>automatique, 4 critères,<br/>sources vérifiées"]
+    C --> D["Valider les notes<br/>corriger, commenter"]
+    D --> E["Discuter avec l'IA ✨<br/>expliquer, comparer @IDEA,<br/>apporter des infos"]
+    E -->|réévaluer| C
+    D --> F["Rapport pour le jury<br/>8 meilleures idées,<br/>PDF anonyme"]
 ```
 
-La CLI Supabase 3 vise la base **locale** par défaut : `--remote` est indispensable pour le
-projet en ligne. Lancée depuis un assistant de code, elle exige en plus `--yes`, qui vaut
-confirmation explicite.
+| Écran | Ce qu'on y fait |
+|---|---|
+| **Vos challenges** | créer un challenge, voir le nombre d'idées |
+| **Import** (3 étapes) | déposer le CSV, lire le rapport d'analyse (rejets, doublons, points d'attention), exclure une idée, enregistrer |
+| **Page du challenge** | contexte stratégique du client, notation de toutes les idées en un clic, tableau complet avec filtres (direction, thème, site, anomalies, doublons) gardés dans l'adresse de la page |
+| **Fiche d'une idée** | détail, auteur (visible ici seulement), évaluation détaillée par critère avec sources, validation humaine des notes, discussion ✨ |
+| **Rapport pour le jury** | classement, fiche argumentée par idée, méthodologie, impression A4 / PDF |
+| **🪙 Crédits** (en-tête) | crédit IA restant du mois et dernières consommations |
 
-## Import des idées : hypothèses
+---
 
-- Fichier **CSV** (séparateur `;` ou `,`, UTF-8 ou Windows-1252), 5 Mo et 2 000 lignes au maximum.
-- Colonnes reconnues : `id`, `date_depot`, `prenom`, `nom`, `direction`, `site`, `theme`,
-  `titre`, `description`, `benefices_attendus`, `budget_estime` (en-têtes tolérants : casse,
-  accents, espaces). Obligatoires : `id`, `titre`, `description`.
-- Ligne rejetée : identifiant, titre ou description manquant, identifiant répété, texte anormalement
-  long. Ligne importée mais signalée : thème, site ou direction absents, budget absent ou non
-  chiffré, date convertie, description très courte, cellule ressemblant à une formule.
-- Budgets convertis en euros (« 15k€ » → 15 000), saisie d'origine toujours conservée.
-- Doublons : contenu identique (certain) ou formulation proche (similarité ≥ 28 %). Rien n'est
-  fusionné automatiquement. Limite : la même idée formulée avec d'autres mots n'est pas détectée.
-- Prénom et nom sont stockés à part (`idea_authors`) et n'apparaissent ni dans la ligne source
-  conservée ni dans le rapport d'analyse.
-- Réimporter un fichier met à jour les idées existantes (même identifiant) sans les dupliquer.
+## 3. Cadrage du besoin
 
-## Notation par les agents
+**Le problème.** La consultante dépouille une quarantaine d'idées à la main dans Excel avant un
+jury : c'est long et sa notation manque de cohérence d'une idée à l'autre.
 
-La notation est **automatique et ne demande aucun renseignement préalable** : une idée jamais
-évaluée l'est dès l'ouverture de sa fiche, et « Évaluer toutes les idées » (page du challenge)
-note tout le challenge en une fois. Elle fait travailler une équipe d'agents IA
-(voir [ADR 0002](docs/adr/0002-notation-par-agents.md)) :
+**Les utilisateurs.**
 
-1. **Analyste** : estime les données manquantes (budget en fourchette, bénéfices…) avec méthode,
-   hypothèses et sources. Ces estimations sont affichées comme telles et ne modifient pas les
-   données importées.
-2. **Quatre consultants**, un par critère (impact, faisabilité, alignement stratégique, caractère
-   innovant), avec recherche web : note 1–5, sous-critères notés, arguments pour/contre,
-   hypothèses, confiance et sources consultables.
-3. **Associé senior** : synthèse pour le jury, incohérences, recommandation (retenir / à discuter /
-   écarter) et prochaines étapes.
+| Rôle | Profil | Usage |
+|---|---|---|
+| Évaluateur | consultant, **non technique** | importe, filtre, note, discute, exporte le rapport |
+| Client / jury | destinataire du livrable | reçoit le rapport ; pas d'accès à l'application |
+| Auteurs des idées | salariés du client | aucun accès ; ce sont **leurs données personnelles** qu'on protège |
 
-L'évaluateur valide ensuite la note de chaque critère (il peut la corriger et la commenter) ; la
-note finale est la moyenne pondérée des notes validées.
+**Ce qui est livré (V1).** Import CSV avec analyse ; liste filtrable de toutes les idées ;
+notation automatique sur la grille du client (impact, faisabilité, alignement stratégique,
+caractère innovant, de 1 à 5) avec une première note justifiée par l'IA, corrigeable ;
+détection des doublons ; discussion avec l'IA sur une décision ; rapport final des 8 meilleures
+idées. L'outil est **réutilisable** : plusieurs challenges, plusieurs clients, une grille par
+challenge.
 
-Configuration (`.env.local` en local, variables Vercel en production ; voir `.env.example`) :
-`SUPABASE_SECRET_KEY` et la clé d'un fournisseur d'IA :
-- **Z.ai (GLM)**, par défaut si `ZAI_API_KEY` est défini : modèle `glm-5.2` pour les trois rôles,
-  recherche web intégrée (outil `web_search`) ;
-- **OpenRouter** (`LLM_PROVIDER=openrouter`, `OPENROUTER_API_KEY`) : un modèle par rôle.
+**Reporté (V2).** File de travaux serveur pour des milliers d'idées, doublons « sémantiques »
+(même idée avec d'autres mots), export Excel, multi-évaluateurs, accès du jury, SSO.
 
-### Pseudonymisation avant l'envoi à l'IA
+---
 
-Avant tout envoi au fournisseur d'IA (évaluation comme discussion), `src/domain/pseudonymize.ts`
-masque ce qui identifie une personne ou peut biaiser le jugement :
+## 4. Architecture et décisions techniques
 
-- **noms des auteurs du challenge** (nom complet, nom seul, ordre inversé, sans tenir compte des
-  accents ni de la casse) → `[PERSONNE_1]`, `[PERSONNE_2]`… (jeton stable au sein d'une
-  évaluation) ; civilité suivie d'un nom inconnu (« M. Durand ») → `[PERSONNE]` ;
-- **e-mails, téléphones, IBAN, numéros de sécurité sociale, matricules et badges** ;
-- **âge d'une personne** (« j'ai 58 ans ») → `[ÂGE]`.
+### 4.1 Vue d'ensemble
 
-Le contenu métier n'est pas modifié (montants, pourcentages, dates, sites, directions, normes).
-Un prénom seul n'est pas masqué (trop de confusions avec des mots courants). Les noms des auteurs
-sont lus avec les droits de l'utilisateur ; la clé serveur n'y a pas accès. Chaque évaluation
-enregistre le nombre d'éléments masqués par catégorie, jamais les valeurs. Dans la discussion, le
-message de l'évaluateur est conservé tel qu'il l'a écrit ; seule la version envoyée à l'IA est
-masquée.
+```mermaid
+flowchart TB
+    subgraph Nav["Navigateur — application React"]
+        UI["Écrans : import, liste, fiche,<br/>discussion, rapport, crédits"]
+        DOM["Logique métier pure<br/>(src/domain) : import, doublons,<br/>classement, pseudonymisation"]
+    end
+    subgraph Vercel["Vercel"]
+        STATIC["Site statique (dist/)"]
+        API1["api/evaluate-idea"]
+        API2["api/idea-chat"]
+    end
+    subgraph SB["Supabase — UE"]
+        AUTH["Auth sans mot de passe<br/>(sur invitation)"]
+        PG[("Postgres + RLS<br/>idées, évaluations, cache,<br/>crédits, discussions")]
+    end
+    RED[("Upstash Redis — UE<br/>limites partagées")]
+    LLM["Fournisseur d'IA<br/>Z.ai GLM ou OpenRouter"]
 
-### Cache des évaluations (ADR 0003 §1)
+    UI --> DOM
+    UI -- "lecture/écriture filtrée par RLS<br/>(clé publique + jeton)" --> PG
+    UI --> AUTH
+    UI -- "jeton de session" --> API1 & API2
+    API1 & API2 -- "lit avec le jeton de l'utilisateur,<br/>écrit avec la clé serveur" --> PG
+    API1 & API2 -- "débit, pause,<br/>coupe-circuit" --> RED
+    API1 & API2 -- "texte pseudonymisé uniquement" --> LLM
+```
 
-- Chaque appel d'agent est mémorisé dans `agent_outputs` sous l'empreinte exacte de sa requête
-  (consignes, données de l'idée, contexte, grille, modèle, paramètres). Une requête identique dans
-  le **même challenge** n'est pas refacturée ; jamais de partage entre challenges (confidentialité).
-- Conséquences : une seconde évaluation identique ne coûte rien ; si l'associé échoue, la relance
-  ne rappelle que lui ; changer le poids d'un critère ne relance que l'associé ; deux idées au
-  contenu identique (doublons exacts) partagent leurs analyses.
-- Une évaluation déjà faite avec exactement les mêmes entrées est réutilisée telle quelle
-  (empreinte complète des entrées). « Relancer l'évaluation » ignore ces deux caches.
-- Les tests n'appellent jamais le fournisseur d'IA : ils utilisent des réponses fictives internes
-  aux tests, et tout appel réseau sortant y est interdit (`tests/setup/no-network.ts`).
+**Principe directeur** : la logique métier est **pure** (`src/domain/`, sans réseau ni base) et
+couverte par les tests ; le navigateur ne détient aucun secret ; seul le serveur (`api/`) connaît
+les clés d'IA et la clé secrète Supabase.
 
-### Crédits IA par utilisateur (ADR 0003 §3)
+### 4.2 Choix techniques
 
-- Chaque utilisateur dispose de **5 € par mois calendaire** (heure de Paris) ; le solde repart le
-  1er du mois, l'historique est conservé.
-- Avant chaque évaluation ou message de discussion, le serveur **réserve** le pire cas (tous les
-  agents, sortie maximale, + 20 %) ; à la fin, il **régularise au coût réel** de chaque appel
-  effectivement fait (même en cas d'échec) et rend le reliquat. Une évaluation servie par le cache
-  ne coûte rien. Solde insuffisant → refus clair (HTTP 402), aucun appel à l'IA.
-- Coût = jetons × barème (`AI_PRICES_EUR_PER_MILLION`, `AI_DEFAULT_PRICE_*`), en micro-euros
-  entiers. Le barème est à renseigner avec le tarif réel de l'offre utilisée.
-- Écritures uniquement par le serveur, via des fonctions de la base ; journal de consommation
-  immuable (ni modification ni suppression, même par l'administrateur de la base). Chaque
-  utilisateur ne voit que sa propre consommation.
-- L'en-tête affiche le **crédit restant** (alerte à 80 % utilisés, « épuisé » à 0) ; un clic donne
-  le détail du mois et les dernières consommations par agent.
-- Recrédit : par l'opérateur uniquement (`grant_ai_credit` avec la clé serveur), pas par les
-  utilisateurs ni le propriétaire d'un challenge.
+| Couche | Choix | Pourquoi |
+|---|---|---|
+| Outillage | **Bun** | un seul outil pour installer, tester et construire ; rapide |
+| Interface | **React 19 + TypeScript strict**, Tailwind, shadcn/ui | composants accessibles, typage de bout en bout |
+| Données et connexion | **Supabase** (Postgres, Auth, RLS), région UE | sécurité au niveau des lignes, pas de serveur à maintenir, données dans l'UE |
+| Serveur | **Fonctions Vercel** (`api/`) | seul endroit qui voit les clés ; même dépôt, même déploiement |
+| IA | **Z.ai (GLM)** ou **OpenRouter**, au choix (`LLM_PROVIDER`) | un modèle par rôle d'agent, recherche web intégrée |
+| Limitation partagée | **Upstash Redis** (REST) | compteurs communs à toutes les instances serverless |
+| Validation | **zod** à chaque frontière | fichier importé, réponses de l'IA et requêtes traités comme non fiables |
+| Hébergement | **Vercel** | une URL, prévisualisations, en-têtes de sécurité |
 
-### Limitation de débit
+### 4.3 Modèle de données
 
-- **Vers le fournisseur d'IA** (`src/server/gate.ts`), partagée par **toutes les instances** via
-  Upstash Redis (scripts Lua atomiques) : au plus `LLM_MAX_CONCURRENT` appels simultanés (2, baux
-  qui expirent si une instance s'arrête), seau à jetons de `LLM_REQUESTS_PER_MINUTE` (20),
-  **coupe-circuit** (5 échecs passagers consécutifs → appels suspendus 2 min). Si Redis ne répond
-  pas en 300 ms : repli en mémoire avec des limites prudentes, nouvel essai après 30 s. En local
-  sans Upstash : mémoire. En production sans Upstash : service refusé (erreur de configuration).
-  Vérification des scripts sur une vraie base : `bun run scripts/check-redis-gate.ts`. Sur saturation (HTTP 429, codes Z.ai
-  1302/1303/1305), tous les appels se mettent en pause (`Retry-After` ou attente exponentielle
-  2 s, 4 s, 8 s… plafonnée à 60 s), jusqu'à 4 nouvelles tentatives.
-- **Par utilisateur** : rafales limitées à `API_REQUESTS_PER_MINUTE_PER_USER` (30) requêtes par
-  minute (fenêtre glissante Redis ; si Redis est indisponible la requête passe, les crédits et
-  quotas en base restant actifs) ; au plus `EVALUATIONS_PER_HOUR` évaluations par heure (60),
-  comptées en base. Aucune donnée personnelle dans Redis : clés globales ou empreinte tronquée.
-- L'évaluation tourne **en arrière-plan** : le serveur répond aussitôt et la page suit
-  l'avancement. Limite connue : en hébergement serverless (Vercel), chaque instance a son propre
-  limiteur et le travail d'arrière-plan devra passer par `waitUntil`.
+```mermaid
+erDiagram
+    challenges ||--o{ challenge_members : "membres"
+    challenges ||--o{ criteria : "grille"
+    challenges ||--o{ ideas : "contient"
+    ideas ||--|| idea_authors : "auteur (isolé)"
+    ideas ||--o{ evaluations : "passages des agents"
+    evaluations ||--o{ criterion_assessments : "analyse par critère"
+    ideas ||--o{ scores : "note humaine par critère"
+    criteria ||--o{ scores : ""
+    ideas ||--o{ duplicate_pairs : "doublons possibles"
+    ideas ||--o{ idea_chat_messages : "discussion"
+    challenges ||--o{ agent_outputs : "cache des agents"
+    ai_credit_months ||--o{ ai_credit_reservations : ""
+    ai_credit_reservations ||--o{ ai_credit_ledger : "journal immuable"
+```
 
-### Hypothèses
+- **La grille est stockée en lignes** (`criteria`) : un nouveau client = de nouvelles données, pas
+  de migration.
+- **Les données personnelles sont isolées** (`idea_authors`) : jamais envoyées à l'IA, absentes du
+  rapport.
+- **La note IA et la note humaine sont séparées** (`criterion_assessments` / `scores`) : l'IA ne
+  peut jamais écrire une note finale.
+- **RLS sur toutes les tables** : un utilisateur ne voit que les challenges dont il est membre ; les
+  résultats des agents, le cache et les crédits ne sont **écrits que par le serveur**.
+- 5 migrations versionnées (`supabase/migrations/`), chacune testée (`supabase/tests/`, 351 tests).
 
-- **Contexte du client supposé.** Faute de stratégie communiquée par le client, les agents
-  partent de l'hypothèse de travail suivante (affichée comme telle sur la page du challenge et
-  signalée aux agents comme non confirmée) :
+### 4.4 Import et détection des anomalies
+
+L'analyse se fait **dans le navigateur, avant tout enregistrement** (`src/domain/importAnalysis.ts`) :
+en-têtes tolérants, séparateur `;` ou `,`, BOM et encodage Windows détectés, lignes vides
+ignorées, lignes invalides rejetées avec leur numéro, budgets convertis (« 15k€ » → 15 000 €, saisie
+d'origine conservée), dates françaises converties, cellules « formule » signalées. Les doublons
+sont repérés par **similarité TF-IDF** (exacts et formulations proches, jamais fusionnés
+automatiquement). L'enregistrement est **atomique** (fonction `import_ideas`) et un réimport met à
+jour sans dupliquer.
+
+### 4.5 Notation par une équipe d'agents
+
+```mermaid
+sequenceDiagram
+    participant U as Évaluateur
+    participant S as Serveur (api/evaluate-idea)
+    participant A as Analyste IA
+    participant C as 4 consultants IA
+    participant P as Associé senior IA
+    U->>S: ouvre une idée non évaluée
+    S->>S: droits (RLS), quota, réservation du crédit
+    S->>S: pseudonymisation, empreinte, cache
+    S-->>U: 202 « évaluation lancée »
+    opt données manquantes
+        S->>A: estimer budget, bénéfices…
+        A-->>S: estimations + méthode + sources
+    end
+    par un consultant par critère
+        S->>C: impact · faisabilité · alignement · innovation (recherche web)
+        C-->>S: note 1–5, sous-critères, pour/contre, sources
+    end
+    S->>P: synthèse et recommandation
+    P-->>S: retenir / à discuter / écarter
+    S->>S: note globale = moyenne pondérée (calculée par le code)
+    S->>S: régularisation du crédit au coût réel
+    U->>S: valide ou corrige chaque note
+```
+
+- **Cohérence** : mêmes consignes versionnées, échelle 1–5 décrite par critère, réponses au
+  **format imposé** et vérifiées ; une réponse non conforme est redemandée une fois puis rejetée —
+  aucune note n'est inventée.
+- **Sources vérifiables** : une source n'est affichée que si l'agent l'a réellement trouvée par sa
+  recherche web.
+- **L'humain décide** : la note IA est une proposition, la note finale est validée par l'évaluateur.
+- **Contexte client** : sans stratégie fournie, un contexte supposé est utilisé et signalé (voir §5).
+- **Discussion ✨** : expliquer une note, comparer avec `@IDEA-xxx`, apporter des informations,
+  puis « Réévaluer avec ces informations ».
+
+### 4.6 Données personnelles et biais
+
+Avant **tout** envoi à l'IA, `src/domain/pseudonymize.ts` remplace les noms des auteurs du
+challenge par des jetons stables (`[PERSONNE_1]`…), et masque civilités, e-mails, téléphones,
+IBAN, numéros de sécurité sociale, matricules et âges. Objectif double : **RGPD** et
+**neutralité** (l'IA juge l'idée, pas la personne). Les montants, dates, sites et directions sont
+conservés. Les fournisseurs qui réutilisent les données sont exclus (OpenRouter), le contenu d'une
+idée est déclaré comme **donnée** et jamais comme consigne (protection contre l'injection de
+consignes), et le rapport final est anonyme.
+
+### 4.7 Coûts et robustesse
+
+```mermaid
+flowchart LR
+    R["Requête"] --> Q{"Limite par<br/>utilisateur<br/>(Redis)"}
+    Q -- dépassée --> X1["429 trop de demandes"]
+    Q -- ok --> K{"Évaluation identique<br/>déjà faite ?"}
+    K -- oui --> Z["Réutilisée : 0 €"]
+    K -- non --> CR{"Crédit du mois<br/>suffisant ?"}
+    CR -- non --> X2["402 crédit épuisé"]
+    CR -- oui --> G["Passerelle IA partagée<br/>concurrence · débit · pause · coupe-circuit"]
+    G --> AG["Agents (cache par agent :<br/>seuls les appels manquants partent)"]
+    AG --> RG["Régularisation au coût réel"]
+```
+
+| Mécanisme | Effet |
+|---|---|
+| **Cache par agent** (`agent_outputs`) | une requête identique dans le même challenge n'est pas repayée ; une évaluation interrompue reprend sans rappeler les agents déjà terminés ; les doublons exacts partagent leurs analyses ; jamais de partage entre clients |
+| **Crédits** : 5 € / utilisateur / mois | réservation du pire cas avant l'appel, régularisation au coût réel, refus clair si épuisé ; journal immuable ; indicateur 🪙 dans l'en-tête |
+| **Passerelle IA** (Upstash) | au plus 2 appels simultanés et 20/min pour toutes les instances, pause générale sur saturation, coupe-circuit après 5 échecs ; repli en mémoire si Redis ne répond pas |
+| **Limites par utilisateur** | 30 requêtes/min, 60 évaluations/h, 120 messages/h |
+
+### 4.8 Qualité
+
+- **358 tests applicatifs** (`bun test`) et **351 tests de base de données** (pgTAP) ; les tests
+  **n'appellent jamais** le fournisseur d'IA (réponses simulées, réseau sortant bloqué).
+- **Intégration continue** : types, tests et build à chaque push (`.github/workflows/ci.yml`).
+- Les décisions structurantes sont tracées dans `docs/adr/` :
+
+| ADR | Décision |
+|---|---|
+| [0001](docs/adr/0001-authentification.md) | connexion sans mot de passe, sur invitation, liens `token_hash` |
+| [0002](docs/adr/0002-notation-par-agents.md) | équipe d'agents, sources vérifiées, pseudonymisation, discussion |
+| [0003](docs/adr/0003-cache-credits-debit-resilience.md) | cache par agent, crédits, limitation partagée, résilience |
+
+---
+
+## 5. Hypothèses
+
+Aucune question ne pouvant être posée au client, ces hypothèses ont été retenues :
+
+- **Format du fichier** : CSV (`;` ou `,`, UTF-8 ou Windows-1252), 5 Mo et 2 000 lignes au plus ;
+  colonnes `id`, `date_depot`, `prenom`, `nom`, `direction`, `site`, `theme`, `titre`,
+  `description`, `benefices_attendus`, `budget_estime` ; obligatoires : `id`, `titre`,
+  `description`. Un réimport met à jour les idées de même identifiant.
+- **Données personnelles** : `prenom` et `nom` sont les seules du fichier ; isolées, jamais
+  envoyées à l'IA, absentes de la liste (minimisation) et du rapport ; visibles sur la fiche.
+- **Contexte du client supposé** (remplaçable sur la page du challenge par le contexte réel) :
 
   > Groupe industriel français spécialisé dans la fabrication d'équipements et de composants
   > industriels, environ 4 000 salariés répartis sur 8 sites de production en France et en Europe.
@@ -202,48 +358,143 @@ masquée.
   > maintenance prédictive, automatisation des processus, digitalisation des ateliers et
   > fidélisation des talents.
 
-  Le consultant peut le remplacer par le contexte réel (« Personnaliser ») ; les évaluations
-  suivantes l'utiliseront.
-- La notation automatique n'est jamais relancée seule après un échec (pas d'appels payants en
-  boucle). Une évaluation par lot s'arrête d'elle-même si la clé ou le crédit du fournisseur d'IA
-  pose problème, et traite deux idées à la fois.
-- Une source n'est affichée que si l'agent l'a réellement trouvée par sa recherche web ; les
-  données boursières proviennent uniquement de pages publiques (pas d'API financière en V1).
-- Une évaluation identique (même contenu, mêmes consignes, mêmes modèles) est réutilisée au lieu
-  d'être refacturée ; « Relancer l'évaluation » force un nouveau passage.
+- **Grille** : 4 critères de même poids par défaut (modifiables en base), notes de 1 à 5.
+- **Shortlist** : 8 idées, classées sur la note validée par le consultant, sinon sur la note
+  proposée par l'IA (signalée) ; un doublon confirmé est regroupé avec l'idée mieux classée.
+- **Doublons** : contenu identique ou formulation proche (similarité ≥ 28 %) ; la même idée
+  exprimée avec d'autres mots n'est pas détectée.
+- **Crédits** : 5 € par utilisateur et par mois calendaire (heure de Paris) ; recrédit par
+  l'opérateur uniquement.
+- **Sources** : uniquement des pages publiques réellement trouvées par la recherche web.
+- **Évaluateurs** : un évaluateur par challenge en V1 ; le modèle permet d'en ajouter.
+- Toutes les données de développement et de démonstration sont **fictives**.
 
-### Discussion avec l'IA sur la décision
+---
 
-Sur la fiche d'une idée, le bouton ✨ « Discuter de la décision » ouvre une conversation avec
-l'associé senior (IA), qui dispose de l'idée, de son évaluation complète et du contexte client :
+## 6. Limites connues et suites
 
-- **expliquer** une note ou la recommandation (arguments, hypothèses, limites) ;
-- **apporter des informations** (chiffres réels, contraintes, stratégie du client) ; le bouton
-  « Réévaluer avec ces informations » relance les agents en leur transmettant les messages de
-  l'évaluateur non encore utilisés (bloc `<informations_evaluateur>`), puis les rattache à
-  cette évaluation (traçabilité) ;
-- **comparer** avec d'autres idées en les citant par leur identifiant précédé de `@`
-  (ex. « compare avec @IDEA-007 ») ; la saisie de `@` propose les idées du challenge. Seules les
-  idées du même challenge, accessibles à l'utilisateur, sont transmises à l'IA.
+| Limite | Conséquence | Suite prévue |
+|---|---|---|
+| Notation par lot pilotée par le navigateur | l'onglet doit rester ouvert ; lent pour des milliers d'idées | file de travaux serveur (ADR 0003 §4, conçue, reportée) |
+| Doublons lexicaux seulement | une même idée reformulée peut échapper | doublons par embeddings |
+| Envoi d'e-mails Supabase intégré | 2 e-mails/heure, invitations inopérantes | configurer un SMTP (annexe 8.1) |
+| Clé GLM « Coding Plan » en local | pas de recherche web, usage hors outils de code à vérifier | clé API standard avec crédit en production |
+| Preview et production partagent la base | données de test mêlées aux vraies | projet Supabase distinct pour les previews |
+| Export | PDF via l'impression du navigateur | export Excel |
 
-Les conversations sont conservées (`idea_chat_messages`) et écrites par le serveur seul ;
-l'IA ne modifie jamais une note elle-même. Quota : `CHAT_MESSAGES_PER_HOUR` (120) messages par
-utilisateur et par heure, en plus de la limitation de débit commune.
+---
 
-## Consultation des idées : hypothèses
+## 7. Déploiement sur Vercel
 
-- La liste affiche toutes les colonnes de l'idée ; les filtres (recherche, direction, thème, site,
-  points d'attention, doublons) sont gardés dans l'adresse de la page : ils survivent à un
-  rechargement et se partagent par lien.
-- Prénom et nom de l'auteur ne figurent pas dans la liste (minimisation) : ils ne sont visibles
-  que sur la fiche de l'idée.
-- « Doublon possible » = idée présente dans une paire détectée et non écartée.
+Le dépôt est prêt (`vercel.json` : build Bun, fonctions `api/`, en-têtes de sécurité CSP/HSTS).
+Plan complet et recette : [docs/deploiement-vercel.md](docs/deploiement-vercel.md).
 
-## Sécurité
+**Avant de commencer** : clé d'IA de **production** (API standard avec crédit, pas la clé Coding
+Plan), barème réel des modèles, SMTP configuré dans Supabase, base Upstash en région UE.
 
-- Projet Supabase hébergé dans l'Union européenne (`eu-north-1`, Stockholm) : les données
-  personnelles des auteurs d'idées restent dans l'UE.
+1. **Relier le projet**
 
-- Aucun secret dans le dépôt : `.env.local` est ignoré, `.env.example` documente les variables.
-- Seules les variables `BUN_PUBLIC_*` sont intégrées au code du navigateur.
-- Le détail des règles est dans [CLAUDE.md](CLAUDE.md) §7.
+   ```bash
+   bunx vercel login
+   bunx vercel link
+   ```
+
+   Dans les réglages du projet Vercel, choisissez une **région UE** pour les fonctions (ex. `fra1`).
+
+2. **Saisir les variables d'environnement** (Project Settings → Environment Variables), sans
+   jamais les commiter : `BUN_PUBLIC_SUPABASE_URL`, `BUN_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
+   `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `LLM_PROVIDER` + la clé
+   d'IA, `AI_PRICES_EUR_PER_MILLION`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`,
+   `APP_URL=https://<votre-domaine>`. Ne définissez **pas** `ZAI_BASE_URL` (point d'entrée
+   standard en production).
+
+3. **Mettre la base à jour** si de nouvelles migrations existent :
+
+   ```bash
+   bunx supabase db push --remote
+   ```
+
+4. **Régler Supabase pour le domaine** (Authentication → URL Configuration) : *Site URL* =
+   `https://<votre-domaine>`, *Redirect URLs* += `https://<votre-domaine>/auth/callback`.
+
+5. **Déployer une prévisualisation** et la recetter :
+
+   ```bash
+   bunx vercel
+   ```
+
+   Connexion (lien et code), invitation, import du CSV d'exemple, évaluation d'une idée (vérifier
+   🪙 avant/après), discussion avec `@IDEA-xxx`, rapport en PDF, en-têtes de sécurité :
+
+   ```bash
+   curl -sI https://<url-de-preview>/ | grep -iE "content-security|strict-transport|x-frame"
+   ```
+
+   Puis Supabase → *Advisors* → *Security* : aucun nouvel avertissement.
+
+6. **Mettre en production**
+
+   ```bash
+   bunx vercel --prod
+   ```
+
+7. **En cas de problème** : `bunx vercel rollback` revient au déploiement précédent.
+
+> En production, l'application **refuse de démarrer sans Upstash** (`service_non_configure`) et
+> **refuse toute clé secrète exposée au navigateur** : une erreur de configuration se voit
+> immédiatement.
+
+---
+
+## 8. Annexes : configuration détaillée
+
+### 8.1 Supabase : e-mails et invitations
+
+L'envoi intégré de Supabase est limité (2 e-mails/heure, uniquement vers les membres de
+l'organisation) et **ne permet pas de modifier les modèles**. Configurez un SMTP (ex. Brevo,
+gratuit jusqu'à 300 e-mails/jour) dans *Authentication → Emails → SMTP Settings*, puis :
+
+**Magic Link** (lien + code, fonctionne dans tout navigateur) :
+
+```html
+<h2>Connexion à Challenge Innovation</h2>
+<p><a href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=email">Se connecter</a></p>
+<p>Ou saisissez ce code : <strong>{{ .Token }}</strong></p>
+<p>Ce lien et ce code sont valables une heure. Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.</p>
+```
+
+**Invite user** :
+
+```html
+<h2>Vous êtes invité sur Challenge Innovation</h2>
+<p>Vous avez été invité à évaluer les idées d'un challenge d'innovation.</p>
+<p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite">Accepter l'invitation</a></p>
+<p>Ce lien est valable 24 heures. Ensuite, connectez-vous simplement avec votre adresse e-mail.</p>
+```
+
+Puis *Authentication → Users → Invite user* pour chaque évaluateur (aucun mot de passe).
+
+### 8.2 Fournisseur d'IA
+
+| Fournisseur | Variables | Remarques |
+|---|---|---|
+| **Z.ai (GLM)** — par défaut si `ZAI_API_KEY` est défini | `ZAI_API_KEY`, `ZAI_MODEL_ANALYSTE/CONSULTANT/ASSOCIE` (défaut `glm-5.2`), `ZAI_THINKING` | recherche web intégrée sur l'API standard ; une clé « Coding Plan » exige `ZAI_BASE_URL=https://api.z.ai/api/coding/paas/v4` et n'a pas de recherche web |
+| **OpenRouter** | `LLM_PROVIDER=openrouter`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL_*` | fournisseurs qui conservent les données exclus ; fixez un plafond de dépense |
+
+### 8.3 Variables d'environnement
+
+La liste complète, commentée, est dans [`.env.example`](.env.example). Principales valeurs par
+défaut : `LLM_MAX_CONCURRENT=2`, `LLM_REQUESTS_PER_MINUTE=20`, `LLM_TIMEOUT_MS=180000`,
+`API_REQUESTS_PER_MINUTE_PER_USER=30`, `EVALUATIONS_PER_HOUR=60`, `CHAT_MESSAGES_PER_HOUR=120`,
+`AGENT_CACHE_MAX_AGE_DAYS=90`, `WEB_MAX_RESULTS=5`. Seules les variables préfixées `BUN_PUBLIC_`
+sont envoyées au navigateur : elles doivent être publiques par nature.
+
+### 8.4 Sécurité en bref
+
+- Aucun secret dans le dépôt ; `.env.local` ignoré ; données hébergées dans l'UE (Supabase
+  `eu-north-1`, Upstash UE).
+- RLS sur toutes les tables, écritures sensibles réservées au serveur, journal de crédits immuable.
+- Pseudonymisation de tout texte envoyé à l'IA ; aucune donnée personnelle dans les journaux ni
+  dans Redis.
+- En-têtes de sécurité en production (CSP, HSTS, X-Frame-Options, nosniff, Permissions-Policy).
+- Règles détaillées : [CLAUDE.md](CLAUDE.md) §7.

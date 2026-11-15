@@ -22,7 +22,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-muted/30">
-      <header className="sticky top-0 z-10 border-b bg-background/85 backdrop-blur">
+      <header className="sticky top-0 z-10 border-b bg-background/85 backdrop-blur print:hidden">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
           <BrandMark />
           <div className="flex min-w-0 items-center gap-3">
@@ -39,7 +39,7 @@ export function AppShell() {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 print:max-w-none print:p-0">
         <Outlet />
       </main>
     </div>

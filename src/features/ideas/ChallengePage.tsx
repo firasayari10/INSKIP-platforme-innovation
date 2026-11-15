@@ -1,4 +1,4 @@
-import { ArrowLeft, FileUp, Inbox, SearchX } from "lucide-react";
+import { ArrowLeft, FileText, FileUp, Inbox, SearchX } from "lucide-react";
 import { useMemo } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { EmptyState, ErrorBlock, LoadingBlock } from "@/components/PageStates";
@@ -67,7 +67,17 @@ export function ChallengePage() {
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{c.client_name}</p>
             <h1 className="text-2xl font-semibold tracking-tight">{c.title}</h1>
           </div>
-          {ideas.state.status === "ready" && ideas.state.data.length > 0 && importLink}
+          {ideas.state.status === "ready" && ideas.state.data.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline">
+                <Link to={`/challenges/${c.id}/rapport`}>
+                  <FileText className="size-4" aria-hidden />
+                  Rapport pour le jury
+                </Link>
+              </Button>
+              {importLink}
+            </div>
+          )}
         </div>
       </header>
 

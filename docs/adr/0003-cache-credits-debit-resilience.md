@@ -830,7 +830,10 @@ V2) et de cet ADR (statut « acceptée » lot par lot).
   refusée), D4 corrigé (OpenRouter : créneau par tentative, pause sur 429). Scripts Lua vérifiés
   sur une vraie base Upstash (`scripts/check-redis-gate.ts`). L'espacement minimal
   (`LLM_MIN_INTERVAL_MS`) est remplacé par le seau à jetons.
-- Lots 4 à 6 : à faire.
+- **Lots 4 à 6 — reportés (2026-11-15, décision de l'utilisateur)** : priorité donnée au rapport
+  pour le jury et au déploiement. Le travail entamé sur la file de travaux (politique de
+  tentatives, worker) est conservé hors du dépôt ; la notation par lot reste pilotée par le
+  navigateur.
 
 ## Conséquences
 

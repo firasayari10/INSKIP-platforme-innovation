@@ -9,6 +9,7 @@ import { ChallengesPage } from "@/features/challenges/ChallengesPage";
 import { ChallengePage } from "@/features/ideas/ChallengePage";
 import { IdeaPage } from "@/features/ideas/IdeaPage";
 import { ImportPage } from "@/features/import/ImportPage";
+import { ReportPage } from "@/features/shortlist/ReportPage";
 import { publicConfig } from "@/lib/config";
 import { supabase } from "@/lib/supabase";
 import "./index.css";
@@ -30,6 +31,7 @@ export function App() {
               <Route path="challenges/:challengeId" element={<ChallengePage />} />
               <Route path="challenges/:challengeId/import" element={<ImportPage />} />
               <Route path="challenges/:challengeId/idees/:ideaId" element={<IdeaPage />} />
+              <Route path="challenges/:challengeId/rapport" element={<ReportPage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

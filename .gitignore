@@ -10,6 +10,16 @@ out/
 .env
 .env.*
 !.env.example
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+secrets/
+credentials*.json
+service-account*.json
+.npmrc
 
 # Vercel / Supabase local
 .vercel/
