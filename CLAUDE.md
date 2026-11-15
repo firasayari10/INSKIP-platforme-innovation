@@ -61,7 +61,7 @@ Toute demande hors V1 → section V2 du README, **pas d'implémentation sans val
 | Front | **React 19, TypeScript strict**, Tailwind v4, **shadcn/ui** (Radix) | Accessible par défaut, cohérent |
 | Données / Auth | **Supabase** (région `eu-north-1`, UE) : Postgres, Auth sans mot de passe, **RLS** | Pas de backend à maintenir, sécurité au niveau des lignes, données dans l'UE |
 | Serveur | **Vercel Functions** (`api/`, TS) | Seul lieu de la clé IA ; même dépôt, même déploiement |
-| IA | **Z.ai (GLM)** ou **OpenRouter** (`LLM_PROVIDER`), un modèle par rôle d'agent, recherche web intégrée, débit limité (`src/server/rateLimiter.ts`) — ADR 0002 | Modèle adapté à chaque tâche, sources web vérifiables, sorties structurées |
+| IA | **Z.ai (GLM)** ou **OpenRouter** (`LLM_PROVIDER`), un modèle par rôle d'agent, recherche web intégrée, débit limité et partagé via **Upstash Redis** (`src/server/gate.ts`) — ADR 0002, 0003 | Modèle adapté à chaque tâche, sources web vérifiables, sorties structurées |
 | Hébergement | **Vercel** : `build.ts` → `dist/` + `api/` | Une URL, previews par branche |
 | Validation | **zod** à chaque frontière | Types et validation runtime d'une seule source |
 

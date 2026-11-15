@@ -21,6 +21,8 @@ const env = {
   SUPABASE_URL: "https://projet.supabase.co",
   SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
   SUPABASE_SECRET_KEY: "sb_secret_test_000",
+  // Les tests enchaînent beaucoup de requêtes du même utilisateur : la limite de rafales est testée à part.
+  API_REQUESTS_PER_MINUTE_PER_USER: "1000",
 };
 const models = {
   analyste: "anthropic/claude-haiku-5.5",
@@ -465,5 +467,49 @@ describe("crédits IA", () => {
     await jobs2.settle();
     expect(second.ops.some(o => o.table === "rpc:settle_ai_credit")).toBe(false);
     expect(second.ops.some(o => o.table === "rpc:release_ai_credit")).toBe(true);
+  });
+});
+
+describe("limitation par utilisateur et configuration de production", () => {
+  test("429 avec Retry-After quand l'utilisateur dépasse sa limite de rafales, sans appeler l'IA ni réserver de crédit", async () => {
+    const { createMemoryUserRateLimiter } = await import("@/server/userRateLimit");
+    const userRateLimiter = createMemoryUserRateLimiter(2);
+    const { make, ops } = fakeSupabase();
+    let called = false;
+    const caller: AgentCaller = async x => ((called = true), okCaller(x));
+    const jobs = backgroundCatcher();
+    for (let i = 0; i < 2; i++) await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, { createSupabase: make, caller, userRateLimiter, ...jobs });
+    await jobs.settle();
+    called = false;
+    const reservesBefore = ops.filter(o => o.table === "rpc:reserve_ai_credit").length;
+    const r = await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, { createSupabase: make, caller, userRateLimiter, ...jobs });
+    expect(r.status).toBe(429);
+    expect(Number(r.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(called).toBe(false);
+    expect(ops.filter(o => o.table === "rpc:reserve_ai_credit").length).toBe(reservesBefore);
+  });
+
+  test("limiteur indisponible : la requête passe (fail-open, les crédits restent la vraie barrière)", async () => {
+    const { make } = fakeSupabase();
+    const failing = { check: async () => ({ allowed: true, retryAfterSeconds: 0 }) };
+    const jobs = backgroundCatcher();
+    const r = await handleEvaluateIdea(post({ ideaId: IDEA_ID }), env, { createSupabase: make, caller: okCaller, userRateLimiter: failing, ...jobs });
+    await jobs.settle();
+    expect(r.status).toBe(202);
+  });
+
+  test("production sans Upstash : service refusé (erreur de configuration visible)", async () => {
+    const { make } = fakeSupabase();
+    const r = await handleEvaluateIdea(post({ ideaId: IDEA_ID }), { ...env, VERCEL_ENV: "production" }, { createSupabase: make, caller: okCaller });
+    expect(r.status).toBe(503);
+    expect(await r.json()).toEqual({ error: "service_non_configure" });
+  });
+
+  test("production avec repli mémoire explicitement choisi : accepté", async () => {
+    const { make } = fakeSupabase();
+    const jobs = backgroundCatcher();
+    const r = await handleEvaluateIdea(post({ ideaId: IDEA_ID }), { ...env, VERCEL_ENV: "production", RATE_LIMIT_BACKEND: "memory" }, { createSupabase: make, caller: okCaller, ...jobs });
+    await jobs.settle();
+    expect(r.status).toBe(202);
   });
 });

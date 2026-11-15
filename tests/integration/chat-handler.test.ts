@@ -20,6 +20,8 @@ const env = {
   SUPABASE_URL: "https://projet.supabase.co",
   SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
   SUPABASE_SECRET_KEY: "sb_secret_test_000",
+  // Les tests enchaînent beaucoup de requêtes du même utilisateur : la limite de rafales est testée à part.
+  API_REQUESTS_PER_MINUTE_PER_USER: "1000",
 };
 
 const idea = {

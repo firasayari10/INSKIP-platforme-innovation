@@ -379,3 +379,45 @@ describe("cache par agent", () => {
     expect([...cache.entries.values()].some(e => e.criterionKey === "innovation")).toBe(false);
   });
 });
+
+describe("client OpenRouter et passerelle partagée (défaut D4)", () => {
+  test("le créneau est libéré pendant l'attente entre deux tentatives, et un 429 met en pause tous les appels", async () => {
+    let inSlot = false;
+    const slotDuringSleep: boolean[] = [];
+    const pauses: number[] = [];
+    const outcomes: string[] = [];
+    const limiter = {
+      run: async <T,>(task: () => Promise<T>) => {
+        inSlot = true;
+        try {
+          return await task();
+        } finally {
+          inSlot = false;
+        }
+      },
+      pause: (ms: number) => void pauses.push(ms),
+      report: async (o: "succes" | "echec_passager") => void outcomes.push(o),
+    };
+    const { impl, requests } = fakeFetch([new Response("", { status: 429, headers: { "Retry-After": "3" } }), okBody("{}")]);
+    const call = createOpenRouterCaller({
+      ...config,
+      fetchImpl: impl,
+      limiter,
+      sleep: async () => void slotDuringSleep.push(inSlot),
+    });
+    expect((await call(request)).ok).toBe(true);
+    expect(requests).toHaveLength(2);
+    expect(slotDuringSleep).toEqual([false]);
+    expect(pauses).toEqual([3_000]);
+    expect(outcomes).toEqual(["echec_passager", "succes"]);
+  });
+
+  test("coupe-circuit ouvert : erreur « fournisseur indisponible », aucun appel envoyé", async () => {
+    const { GateError } = await import("@/server/gate");
+    const { impl, requests } = fakeFetch([okBody("{}")]);
+    const limiter = { run: async () => Promise.reject(new GateError("circuit_ouvert")), pause: () => {} };
+    const r = await createOpenRouterCaller({ ...config, fetchImpl: impl, limiter: limiter as never })(request);
+    expect(r).toMatchObject({ ok: false, error: { code: "fournisseur_indisponible" } });
+    expect(requests).toHaveLength(0);
+  });
+});

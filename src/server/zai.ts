@@ -1,6 +1,7 @@
 import type { ChatMessage, Citation } from "../domain/scoring";
 import { err, ok } from "../domain/result";
 import type { AgentCaller, AgentError, AgentRequest } from "./openrouter";
+import { GateError } from "./gate";
 import { retryDelayMs, type RateLimiter } from "./rateLimiter";
 
 /**
@@ -113,6 +114,14 @@ export function createZaiCaller(config: ZaiConfig): AgentCaller {
           }
         }));
       } catch (e) {
+        if (e instanceof GateError) {
+          return err(
+            e.code === "circuit_ouvert"
+              ? { code: "fournisseur_indisponible", detail: "coupe-circuit ouvert" }
+              : { code: "quota_depasse", detail: "attente d'un créneau dépassée" },
+          );
+        }
+        await config.limiter.report?.("echec_passager");
         last =
           e instanceof Error && e.name === "AbortError"
             ? { code: "delai_depasse", detail: `délai de ${config.timeoutMs} ms dépassé` }
@@ -138,6 +147,7 @@ export function createZaiCaller(config: ZaiConfig): AgentCaller {
       if (response.status === 429 || SATURATION_CODES.has(providerCode) || response.status >= 500) {
         const delay = retryDelayMs(attempt, response.headers.get("retry-after"), config.random);
         config.limiter.pause(delay); // tout le serveur ralentit, pas seulement cet appel
+        await config.limiter.report?.("echec_passager");
         last = { code: "quota_depasse", detail: `HTTP ${response.status} code ${providerCode || "-"}` };
         await sleep(delay);
         continue;
@@ -155,6 +165,7 @@ export function createZaiCaller(config: ZaiConfig): AgentCaller {
       } catch {
         return err({ code: "reponse_invalide", detail: "contenu non JSON" });
       }
+      await config.limiter.report?.("succes");
       return ok({
         json,
         citations: citationsOf(raw.web_search),

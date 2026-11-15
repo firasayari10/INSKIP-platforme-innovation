@@ -10,7 +10,9 @@ import {
   type EvaluationOptions,
 } from "./evaluateIdea";
 import { createOpenRouterCaller, type AgentCaller } from "./openrouter";
-import { createRateLimiter, type RateLimiter } from "./rateLimiter";
+import { gateFor, rateLimitMisconfigured, userRateLimiterFor } from "./infrastructure";
+import type { RateLimiter } from "./rateLimiter";
+import type { UserRateLimiter } from "./userRateLimit";
 import { createZaiCaller } from "./zai";
 import { evaluationInputKey } from "../domain/cache";
 import { createPseudonymizer, type Pseudonymizer, type PseudonymizationReport } from "../domain/pseudonymize";
@@ -55,7 +57,13 @@ export const envSchema = z
     WEB_MAX_RESULTS: z.coerce.number().int().min(1).max(10).default(5),
     LLM_MAX_CONCURRENT: z.coerce.number().int().min(1).max(20).default(2),
     LLM_REQUESTS_PER_MINUTE: z.coerce.number().int().min(1).max(600).default(20),
-    LLM_MIN_INTERVAL_MS: z.coerce.number().int().min(0).max(60_000).default(500),
+    LLM_FALLBACK_MAX_CONCURRENT: z.coerce.number().int().min(1).max(20).default(1),
+    // Limitation partagée entre instances (Upstash Redis REST) ; mémoire en local.
+    UPSTASH_REDIS_REST_URL: z.url().optional(),
+    UPSTASH_REDIS_REST_TOKEN: z.string().min(10).optional(),
+    RATE_LIMIT_BACKEND: z.enum(["redis", "memory"]).optional(),
+    API_REQUESTS_PER_MINUTE_PER_USER: z.coerce.number().int().min(1).max(1000).default(30),
+    VERCEL_ENV: z.string().optional(),
     LLM_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(600_000).default(180_000),
     EVALUATIONS_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(60),
     AGENT_CACHE_MAX_AGE_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
@@ -104,20 +112,9 @@ const RUNNING_TIMEOUT_MS = 15 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
 // Limiteur partagé par toutes les évaluations de ce processus serveur (créé à la première requête).
-let sharedLimiter: { key: string; limiter: RateLimiter } | null = null;
+/** Passerelle vers le fournisseur, partagée entre instances via Redis (repli mémoire). */
 export function limiterFor(env: ServerEnv): RateLimiter {
-  const key = `${env.LLM_MAX_CONCURRENT}/${env.LLM_REQUESTS_PER_MINUTE}/${env.LLM_MIN_INTERVAL_MS}`;
-  if (sharedLimiter?.key !== key) {
-    sharedLimiter = {
-      key,
-      limiter: createRateLimiter({
-        maxConcurrent: env.LLM_MAX_CONCURRENT,
-        requestsPerMinute: env.LLM_REQUESTS_PER_MINUTE,
-        minIntervalMs: env.LLM_MIN_INTERVAL_MS,
-      }),
-    };
-  }
-  return sharedLimiter.limiter;
+  return gateFor(env);
 }
 
 export function modelsFor(env: ServerEnv): AgentModels {
@@ -148,13 +145,13 @@ export function callerFor(env: ServerEnv, limiter: RateLimiter): AgentCaller {
       limiter,
     });
   }
-  const openRouter = createOpenRouterCaller({
+  return createOpenRouterCaller({
     apiKey: env.OPENROUTER_API_KEY!,
+    limiter,
     webMaxResults: env.WEB_MAX_RESULTS,
     timeoutMs: env.LLM_TIMEOUT_MS,
     appUrl: env.APP_URL,
   });
-  return request => limiter.run(() => openRouter(request));
 }
 
 /** Pseudonymiseur alimenté par les noms des auteurs du challenge (lus via la RLS). */
@@ -176,6 +173,8 @@ export interface HandlerDeps {
   /** Transport des agents (remplaçable en test). */
   caller?: AgentCaller;
   createSupabase?: typeof createClient;
+  /** Limite de rafales par utilisateur (par défaut : Upstash ou mémoire ; remplaçable en test). */
+  userRateLimiter?: UserRateLimiter;
   /** Crédits IA (par défaut : fonctions de la base ; remplaçable en test). */
   credits?: CreditService;
   /** Cache des sorties d'agents (par défaut : table agent_outputs ; remplaçable en test). */
@@ -197,6 +196,10 @@ export async function handleEvaluateIdea(
     return fail(503, "service_non_configure");
   }
   const env = envParsed.data;
+  if (rateLimitMisconfigured(env)) {
+    console.error("[evaluate-idea] production sans limitation partagée : configurez UPSTASH_REDIS_REST_URL/TOKEN");
+    return fail(503, "service_non_configure");
+  }
   const make = deps.createSupabase ?? createClient;
 
   const token = /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1];
@@ -219,6 +222,9 @@ export async function handleEvaluateIdea(
   const { data: userData, error: userError } = await userDb.auth.getUser(token);
   if (userError || !userData.user) return fail(401, "non_connecte");
   const userId = userData.user.id;
+
+  const burst = await (deps.userRateLimiter ?? userRateLimiterFor(env)).check(userId);
+  if (!burst.allowed) return fail(429, "trop_de_demandes", { "Retry-After": String(burst.retryAfterSeconds) });
 
   const { data: idea } = await userDb
     .from("ideas")

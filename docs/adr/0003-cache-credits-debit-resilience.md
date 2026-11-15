@@ -823,7 +823,14 @@ V2) et de cet ADR (statut « acceptée » lot par lot).
   pour que le journal survive à sa suppression), `src/domain/credits.ts`, `src/server/credits.ts`,
   réservation/régularisation dans l'évaluation et la discussion, indicateur dans l'en-tête.
   Pseudonymisation systématique des textes envoyés à l'IA (ADR 0002).
-- Lots 3 à 6 : à faire.
+- **Lot 3 — fait (2026-11-15)** : `src/server/gate.ts` (magasin Upstash en Lua + magasin mémoire,
+  même contrat ; passerelle avec sémaphore à bail, seau à jetons, pause partagée, coupe-circuit ;
+  repli dégradé), `src/server/userRateLimit.ts` (fenêtre glissante par utilisateur, fail-open),
+  `src/server/infrastructure.ts` (sélection selon la configuration, production sans Upstash
+  refusée), D4 corrigé (OpenRouter : créneau par tentative, pause sur 429). Scripts Lua vérifiés
+  sur une vraie base Upstash (`scripts/check-redis-gate.ts`). L'espacement minimal
+  (`LLM_MIN_INTERVAL_MS`) est remplacé par le seau à jetons.
+- Lots 4 à 6 : à faire.
 
 ## Conséquences
 

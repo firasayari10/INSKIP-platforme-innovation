@@ -10,6 +10,8 @@ import {
 } from "../domain/chat";
 import { jsonSchemaOf, type IdeaForScoring } from "../domain/scoring";
 import { callParamsFor, callerFor, envSchema, fail, json, limiterFor, modelsFor, priceTableFor, pseudonymizerFor } from "./evaluateHandler";
+import { rateLimitMisconfigured, userRateLimiterFor } from "./infrastructure";
+import type { UserRateLimiter } from "./userRateLimit";
 import { createSupabaseCredits, type CreditService } from "./credits";
 import { reservationMicroEur, usageEvent, type UsageEvent } from "../domain/credits";
 import type { AgentCaller } from "./openrouter";
@@ -95,6 +97,7 @@ async function digestOf(db: SupabaseClient, ideaId: string, detailed: boolean): 
 
 export interface ChatDeps {
   caller?: AgentCaller;
+  userRateLimiter?: UserRateLimiter;
   credits?: CreditService;
   createSupabase?: typeof createClient;
 }
@@ -108,6 +111,7 @@ export async function handleIdeaChat(
   const envParsed = envSchema.safeParse(rawEnv);
   if (!envParsed.success) return fail(503, "service_non_configure");
   const env = envParsed.data;
+  if (rateLimitMisconfigured(env)) return fail(503, "service_non_configure");
   const make = deps.createSupabase ?? createClient;
 
   const token = /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1];
@@ -129,6 +133,9 @@ export async function handleIdeaChat(
   const { data: userData, error: userError } = await userDb.auth.getUser(token);
   if (userError || !userData.user) return fail(401, "non_connecte");
   const userId = userData.user.id;
+
+  const burst = await (deps.userRateLimiter ?? userRateLimiterFor(env)).check(userId);
+  if (!burst.allowed) return fail(429, "trop_de_demandes", { "Retry-After": String(burst.retryAfterSeconds) });
 
   const { data: idea } = await userDb
     .from("ideas")

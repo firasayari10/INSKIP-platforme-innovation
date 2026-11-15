@@ -129,6 +129,8 @@ export const evaluationErrorMessages: Record<import("./scoringData").EvaluationR
   delai_depasse: "L'analyse a pris trop de temps. Réessayez ; si le problème persiste, contactez l'administrateur.",
   reponse_invalide: "Un agent a rendu une analyse incomplète ; aucune note n'a été enregistrée. Relancez l'évaluation.",
   reseau: "Connexion au serveur impossible. Vérifiez votre accès à Internet puis réessayez.",
+  fournisseur_indisponible:
+    "Le fournisseur d'IA rencontre des erreurs répétées : les appels sont suspendus quelques minutes pour le laisser récupérer. Réessayez ensuite.",
   inconnue: "Une erreur inattendue s'est produite. Réessayez dans quelques instants.",
 };
 

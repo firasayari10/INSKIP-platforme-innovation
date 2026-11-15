@@ -1,5 +1,7 @@
 import type { ChatMessage, Citation } from "../domain/scoring";
 import { err, ok, type Result } from "../domain/result";
+import { GateError } from "./gate";
+import { retryDelayMs, type RateLimiter } from "./rateLimiter";
 
 /**
  * Client OpenRouter (côté serveur uniquement : la clé n'atteint jamais le navigateur).
@@ -16,7 +18,8 @@ export type AgentErrorCode =
   | "quota_depasse"
   | "delai_depasse"
   | "reseau"
-  | "reponse_invalide";
+  | "reponse_invalide"
+  | "fournisseur_indisponible";
 
 export interface AgentError {
   code: AgentErrorCode;
@@ -49,6 +52,8 @@ export type AgentCaller = (request: AgentRequest) => Promise<Result<AgentRespons
 
 export interface OpenRouterConfig {
   apiKey: string;
+  /** Passerelle partagée (concurrence, débit, pause, coupe-circuit), prise PAR TENTATIVE. */
+  limiter?: RateLimiter;
   webMaxResults: number;
   timeoutMs: number;
   appUrl: string;
@@ -129,38 +134,58 @@ export function createOpenRouterCaller(config: OpenRouterConfig): AgentCaller {
       usage: { include: true },
     });
 
+    const run = <T>(task: () => Promise<T>) => (config.limiter ? config.limiter.run(task) : task());
     let last: AgentError = { code: "reseau", detail: "aucune tentative" };
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+      // Attente HORS de la passerelle : le créneau n'est pas tenu pendant le délai (défaut D4).
       if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1]!);
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), config.timeoutMs);
       let response: Response;
+      let text: string;
       try {
-        response = await doFetch(ENDPOINT, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.apiKey}`,
-            "Content-Type": "application/json",
-            "HTTP-Referer": config.appUrl,
-            "X-Title": "Challenge Innovation",
-          },
-          body,
-          signal: controller.signal,
-        });
+        ({ response, text } = await run(async () => {
+          // Le délai ne court qu'une fois le créneau obtenu (pas pendant l'attente dans la file).
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+          try {
+            const r = await doFetch(ENDPOINT, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${config.apiKey}`,
+                "Content-Type": "application/json",
+                "HTTP-Referer": config.appUrl,
+                "X-Title": "Challenge Innovation",
+              },
+              body,
+              signal: controller.signal,
+            });
+            return { response: r, text: await r.text() };
+          } finally {
+            clearTimeout(timer);
+          }
+        }));
       } catch (e) {
-        last = controller.signal.aborted
-          ? { code: "delai_depasse", detail: `délai de ${config.timeoutMs} ms dépassé` }
-          : { code: "reseau", detail: e instanceof Error ? e.message : "erreur réseau" };
+        if (e instanceof GateError) {
+          return err(
+            e.code === "circuit_ouvert"
+              ? { code: "fournisseur_indisponible", detail: "coupe-circuit ouvert" }
+              : { code: "quota_depasse", detail: "attente d'un créneau dépassée" },
+          );
+        }
+        await config.limiter?.report?.("echec_passager");
+        last =
+          e instanceof Error && e.name === "AbortError"
+            ? { code: "delai_depasse", detail: `délai de ${config.timeoutMs} ms dépassé` }
+            : { code: "reseau", detail: e instanceof Error ? e.message : "erreur réseau" };
         continue;
-      } finally {
-        clearTimeout(timer);
       }
 
-      const text = await response.text();
       if (!response.ok) {
         const e = errorFromStatus(response.status, text);
         if (e === "retry") {
           last = { code: response.status === 429 ? "quota_depasse" : "reseau", detail: `HTTP ${response.status}` };
+          // Saturation : tous les appels (toutes instances) se mettent en pause.
+          if (response.status === 429) config.limiter?.pause(retryDelayMs(attempt, response.headers.get("retry-after")));
+          await config.limiter?.report?.("echec_passager");
           continue;
         }
         return err(e);
@@ -182,6 +207,7 @@ export function createOpenRouterCaller(config: OpenRouterConfig): AgentCaller {
       } catch {
         return err({ code: "reponse_invalide", detail: "contenu non JSON" });
       }
+      await config.limiter?.report?.("succes");
       return ok({
         json,
         citations: citationsOf(message.annotations),

@@ -169,13 +169,19 @@ masquée.
 
 ### Limitation de débit
 
-- **Vers le fournisseur d'IA** (`src/server/rateLimiter.ts`), partagée par toutes les évaluations
-  du serveur : au plus `LLM_MAX_CONCURRENT` appels simultanés (2), `LLM_REQUESTS_PER_MINUTE` (20)
-  et `LLM_MIN_INTERVAL_MS` entre deux appels (500 ms). Sur saturation (HTTP 429, codes Z.ai
+- **Vers le fournisseur d'IA** (`src/server/gate.ts`), partagée par **toutes les instances** via
+  Upstash Redis (scripts Lua atomiques) : au plus `LLM_MAX_CONCURRENT` appels simultanés (2, baux
+  qui expirent si une instance s'arrête), seau à jetons de `LLM_REQUESTS_PER_MINUTE` (20),
+  **coupe-circuit** (5 échecs passagers consécutifs → appels suspendus 2 min). Si Redis ne répond
+  pas en 300 ms : repli en mémoire avec des limites prudentes, nouvel essai après 30 s. En local
+  sans Upstash : mémoire. En production sans Upstash : service refusé (erreur de configuration).
+  Vérification des scripts sur une vraie base : `bun run scripts/check-redis-gate.ts`. Sur saturation (HTTP 429, codes Z.ai
   1302/1303/1305), tous les appels se mettent en pause (`Retry-After` ou attente exponentielle
   2 s, 4 s, 8 s… plafonnée à 60 s), jusqu'à 4 nouvelles tentatives.
-- **Par utilisateur** : au plus `EVALUATIONS_PER_HOUR` évaluations lancées par heure (60), comptées
-  en base ; une évaluation réutilisée (déjà faite) ne compte pas.
+- **Par utilisateur** : rafales limitées à `API_REQUESTS_PER_MINUTE_PER_USER` (30) requêtes par
+  minute (fenêtre glissante Redis ; si Redis est indisponible la requête passe, les crédits et
+  quotas en base restant actifs) ; au plus `EVALUATIONS_PER_HOUR` évaluations par heure (60),
+  comptées en base. Aucune donnée personnelle dans Redis : clés globales ou empreinte tronquée.
 - L'évaluation tourne **en arrière-plan** : le serveur répond aussitôt et la page suit
   l'avancement. Limite connue : en hébergement serverless (Vercel), chaque instance a son propre
   limiteur et le travail d'arrière-plan devra passer par `waitUntil`.

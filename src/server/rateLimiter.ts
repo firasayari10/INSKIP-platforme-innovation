@@ -23,6 +23,8 @@ export interface Clock {
 export interface RateLimiter {
   run<T>(task: () => Promise<T>): Promise<T>;
   pause(ms: number): void;
+  /** Signale l'issue d'un appel au coupe-circuit (passerelle partagée). */
+  report?(outcome: "succes" | "echec_passager"): Promise<void>;
 }
 
 const realClock: Clock = { now: () => Date.now(), sleep: ms => new Promise(r => setTimeout(r, ms)) };

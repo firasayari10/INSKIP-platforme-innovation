@@ -218,6 +218,7 @@ export type EvaluationRequestError =
   | "quota_depasse"
   | "delai_depasse"
   | "reponse_invalide"
+  | "fournisseur_indisponible"
   | "reseau"
   | "inconnue";
 
@@ -235,6 +236,7 @@ const KNOWN: ReadonlySet<string> = new Set([
   "quota_depasse",
   "delai_depasse",
   "reponse_invalide",
+  "fournisseur_indisponible",
   "reseau",
 ]);
 
