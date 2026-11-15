@@ -9,6 +9,10 @@ import { useAuth } from "@/features/auth/AuthProvider";
 import { useLoader } from "@/hooks/useLoader";
 import { getChallenge, listDuplicateIdeaIds, listIdeas } from "@/lib/data";
 import { dataErrorMessages, rowWarningLabels } from "@/lib/messages";
+import { BatchEvaluationBar } from "@/features/scoring/BatchEvaluationBar";
+import { ChallengeContextCard } from "@/features/scoring/ChallengeContextCard";
+import { listEvaluationSummaries, type EvaluationSummary } from "@/lib/scoringData";
+import { recommendationLabels } from "@/lib/messages";
 import { IdeaFilterBar } from "./IdeaFilterBar";
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
@@ -22,6 +26,9 @@ export function ChallengePage() {
   const challenge = useLoader(() => getChallenge(client, challengeId), [client, challengeId]);
   const ideas = useLoader(() => listIdeas(client, challengeId), [client, challengeId]);
   const duplicates = useLoader(() => listDuplicateIdeaIds(client, challengeId), [client, challengeId]);
+  const summaries = useLoader(() => listEvaluationSummaries(client, challengeId), [client, challengeId]);
+  const summaryOf = (ideaId: string): EvaluationSummary | undefined =>
+    summaries.state.status === "ready" ? summaries.state.data.get(ideaId) : undefined;
 
   // Les filtres vivent dans l'adresse : ils survivent à un rechargement et se partagent par lien.
   const [params, setParams] = useSearchParams();
@@ -75,6 +82,14 @@ export function ChallengePage() {
           </EmptyState>
         ) : (
           <section className="space-y-3">
+            <ChallengeContextCard challengeId={c.id} />
+            {summaries.state.status === "ready" && (
+              <BatchEvaluationBar
+                ideaIds={ideas.state.data.map(i => i.id)}
+                summaries={summaries.state.data}
+                onProgress={summaries.reload}
+              />
+            )}
             <IdeaFilterBar
               ideas={ideas.state.data}
               filters={filters}
@@ -100,7 +115,7 @@ export function ChallengePage() {
               </EmptyState>
             ) : (
             <div className="overflow-x-auto rounded-lg border bg-background">
-              <table className="w-full min-w-[1400px] text-sm">
+              <table className="w-full min-w-[1600px] text-sm">
                 <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
                   <tr>
                     <th className="whitespace-nowrap px-4 py-2.5 font-medium">Identifiant</th>
@@ -112,6 +127,8 @@ export function ChallengePage() {
                     <th className="px-2 py-2.5 font-medium">Thème</th>
                     <th className="px-2 py-2.5 text-right font-medium">Budget</th>
                     <th className="whitespace-nowrap px-2 py-2.5 font-medium">Date de dépôt</th>
+                    <th className="whitespace-nowrap px-2 py-2.5 text-right font-medium">Note IA</th>
+                    <th className="px-2 py-2.5 font-medium">Recommandation</th>
                     <th className="px-4 py-2.5 font-medium">Points d'attention</th>
                   </tr>
                 </thead>
@@ -167,6 +184,12 @@ export function ChallengePage() {
                         <td className="whitespace-nowrap px-2 py-2.5 align-top tabular-nums">
                           {i.submitted_at ? dateFormat.format(new Date(`${i.submitted_at}T00:00:00`)) : "—"}
                         </td>
+                        <td className="whitespace-nowrap px-2 py-2.5 text-right align-top tabular-nums">
+                          <AiScoreCell summary={summaryOf(i.id)} />
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-2.5 align-top text-xs">
+                          {summaryOf(i.id)?.recommendation ? recommendationLabels[summaryOf(i.id)!.recommendation!] : ""}
+                        </td>
                         <td className="min-w-48 px-4 py-2.5 align-top text-xs text-amber-700">
                           {i.quality_flags.length > 0
                             ? i.quality_flags.map(f => rowWarningLabels[f as RowWarningCode] ?? f).join(", ")
@@ -183,4 +206,11 @@ export function ChallengePage() {
         ))}
     </div>
   );
+}
+
+function AiScoreCell({ summary }: { summary: EvaluationSummary | undefined }) {
+  if (!summary) return <span className="text-muted-foreground">—</span>;
+  if (summary.status === "running") return <span className="text-xs text-muted-foreground">en cours…</span>;
+  if (summary.status === "failed") return <span className="text-xs text-destructive">échec</span>;
+  return <span>{summary.aiScore === null ? "—" : summary.aiScore.toLocaleString("fr-FR", { minimumFractionDigits: 1 })}</span>;
 }

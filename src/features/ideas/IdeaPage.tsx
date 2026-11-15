@@ -10,6 +10,7 @@ import { useLoader } from "@/hooks/useLoader";
 import { getChallenge, getIdea, listDuplicateIdeaIds, listDuplicatesOfIdea, listIdeas } from "@/lib/data";
 import { dataErrorMessages, rowWarningLabels } from "@/lib/messages";
 import { cn } from "@/lib/utils";
+import { EvaluationPanel } from "@/features/scoring/EvaluationPanel";
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const longDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric" });
@@ -162,6 +163,8 @@ export function IdeaPage() {
           </Block>
         </aside>
       </div>
+
+      <EvaluationPanel challengeId={challengeId} ideaId={i.id} />
     </div>
   );
 }

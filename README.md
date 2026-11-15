@@ -93,6 +93,76 @@ confirmation explicite.
   conservée ni dans le rapport d'analyse.
 - Réimporter un fichier met à jour les idées existantes (même identifiant) sans les dupliquer.
 
+## Notation par les agents
+
+La notation est **automatique et ne demande aucun renseignement préalable** : une idée jamais
+évaluée l'est dès l'ouverture de sa fiche, et « Évaluer toutes les idées » (page du challenge)
+note tout le challenge en une fois. Elle fait travailler une équipe d'agents IA
+(voir [ADR 0002](docs/adr/0002-notation-par-agents.md)) :
+
+1. **Analyste** : estime les données manquantes (budget en fourchette, bénéfices…) avec méthode,
+   hypothèses et sources. Ces estimations sont affichées comme telles et ne modifient pas les
+   données importées.
+2. **Quatre consultants**, un par critère (impact, faisabilité, alignement stratégique, caractère
+   innovant), avec recherche web : note 1–5, sous-critères notés, arguments pour/contre,
+   hypothèses, confiance et sources consultables.
+3. **Associé senior** : synthèse pour le jury, incohérences, recommandation (retenir / à discuter /
+   écarter) et prochaines étapes.
+
+L'évaluateur valide ensuite la note de chaque critère (il peut la corriger et la commenter) ; la
+note finale est la moyenne pondérée des notes validées.
+
+Configuration (`.env.local` en local, variables Vercel en production ; voir `.env.example`) :
+`SUPABASE_SECRET_KEY` et la clé d'un fournisseur d'IA :
+- **Z.ai (GLM)**, par défaut si `ZAI_API_KEY` est défini : modèle `glm-5.2` pour les trois rôles,
+  recherche web intégrée (outil `web_search`) ;
+- **OpenRouter** (`LLM_PROVIDER=openrouter`, `OPENROUTER_API_KEY`) : un modèle par rôle.
+
+### Limitation de débit
+
+- **Vers le fournisseur d'IA** (`src/server/rateLimiter.ts`), partagée par toutes les évaluations
+  du serveur : au plus `LLM_MAX_CONCURRENT` appels simultanés (2), `LLM_REQUESTS_PER_MINUTE` (20)
+  et `LLM_MIN_INTERVAL_MS` entre deux appels (500 ms). Sur saturation (HTTP 429, codes Z.ai
+  1302/1303/1305), tous les appels se mettent en pause (`Retry-After` ou attente exponentielle
+  2 s, 4 s, 8 s… plafonnée à 60 s), jusqu'à 4 nouvelles tentatives.
+- **Par utilisateur** : au plus `EVALUATIONS_PER_HOUR` évaluations lancées par heure (60), comptées
+  en base ; une évaluation réutilisée (déjà faite) ne compte pas.
+- L'évaluation tourne **en arrière-plan** : le serveur répond aussitôt et la page suit
+  l'avancement. Limite connue : en hébergement serverless (Vercel), chaque instance a son propre
+  limiteur et le travail d'arrière-plan devra passer par `waitUntil`.
+
+### Hypothèses
+
+- **Contexte du client supposé.** Faute de stratégie communiquée par le client, les agents
+  partent de l'hypothèse de travail suivante (affichée comme telle sur la page du challenge et
+  signalée aux agents comme non confirmée) :
+
+  > Groupe industriel français spécialisé dans la fabrication d'équipements et de composants
+  > industriels, environ 4 000 salariés répartis sur 8 sites de production en France et en Europe.
+  > Stratégie RSE : réduire les émissions de CO₂ de 30 % d'ici 2030, améliorer l'efficacité
+  > énergétique des sites et renforcer la sécurité au travail, avec un objectif de zéro accident grave.
+  > Stratégie financière : gagner 2 points de marge opérationnelle sur les trois prochaines années,
+  > en privilégiant les investissements à retour rapide (ROI inférieur à 3 ans).
+  > Priorités : amélioration de la performance industrielle, réduction des arrêts de production,
+  > maintenance prédictive, automatisation des processus, digitalisation des ateliers et
+  > fidélisation des talents.
+
+  Le consultant peut le remplacer par le contexte réel (« Personnaliser ») ; les évaluations
+  suivantes l'utiliseront.
+- La notation automatique n'est jamais relancée seule après un échec (pas d'appels payants en
+  boucle). Une évaluation par lot s'arrête d'elle-même si la clé ou le crédit du fournisseur d'IA
+  pose problème, et traite deux idées à la fois.
+- Une source n'est affichée que si l'agent l'a réellement trouvée par sa recherche web ; les
+  données boursières proviennent uniquement de pages publiques (pas d'API financière en V1).
+- Une évaluation identique (même contenu, mêmes consignes, mêmes modèles) est réutilisée au lieu
+  d'être refacturée ; « Relancer l'évaluation » force un nouveau passage.
+
+### Prochaine étape
+
+Dialogue avec l'IA sur la fiche d'une idée : l'évaluateur pourra demander l'explication d'une
+note et apporter des informations (contexte réel, chiffres du porteur de l'idée) qui seront
+prises en compte dans une nouvelle évaluation.
+
 ## Consultation des idées : hypothèses
 
 - La liste affiche toutes les colonnes de l'idée ; les filtres (recherche, direction, thème, site,

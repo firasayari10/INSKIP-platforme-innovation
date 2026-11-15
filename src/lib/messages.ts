@@ -105,3 +105,41 @@ export const rowWarningLabels: Record<RowWarningCode, string> = {
   date_invalide: "Date de dépôt illisible",
   date_reformatee: "Date convertie au format standard",
 };
+
+// ---------- Notation par les agents ----------
+
+export const evaluationErrorMessages: Record<import("./scoringData").EvaluationRequestError, string> = {
+  non_connecte: "Votre session a expiré. Reconnectez-vous puis relancez l'évaluation.",
+  idee_introuvable: "Cette idée n'existe plus ou ne vous est pas accessible.",
+  evaluation_en_cours: "Une évaluation de cette idée est déjà en cours. Patientez une minute puis rechargez la page.",
+  trop_de_demandes:
+    "Vous avez lancé beaucoup d'évaluations en une heure : la limite est atteinte pour protéger le budget. Réessayez dans quelques minutes.",
+  evaluation_echouee: "L'évaluation n'a pas abouti ; aucune note n'a été enregistrée. Relancez-la.",
+  service_non_configure:
+    "L'évaluation par les agents n'est pas encore configurée sur ce serveur (clé du fournisseur d'IA manquante). Contactez l'administrateur.",
+  cle_invalide: "La clé du fournisseur d'IA est refusée. Contactez l'administrateur de la plateforme.",
+  credit_insuffisant: "Le crédit du fournisseur d'IA est épuisé. Contactez l'administrateur de la plateforme.",
+  modele_indisponible: "Le modèle d'IA configuré n'est plus disponible. Contactez l'administrateur de la plateforme.",
+  quota_depasse:
+    "Le fournisseur d'IA est saturé malgré plusieurs tentatives espacées. Réessayez dans quelques minutes.",
+  delai_depasse: "L'analyse a pris trop de temps. Réessayez ; si le problème persiste, contactez l'administrateur.",
+  reponse_invalide: "Un agent a rendu une analyse incomplète ; aucune note n'a été enregistrée. Relancez l'évaluation.",
+  reseau: "Connexion au serveur impossible. Vérifiez votre accès à Internet puis réessayez.",
+  inconnue: "Une erreur inattendue s'est produite. Réessayez dans quelques instants.",
+};
+
+export const recommendationLabels = {
+  retenir: "À retenir pour la shortlist",
+  a_discuter: "À discuter",
+  ecarter: "À écarter",
+} as const;
+
+export const confidenceLabels: Record<string, string> = { faible: "faible", moyenne: "moyenne", elevee: "élevée" };
+
+export const estimableFieldLabels: Record<string, string> = {
+  budget: "Budget",
+  benefices_attendus: "Bénéfices attendus",
+  theme: "Thème",
+  direction: "Direction",
+  site: "Site",
+};
