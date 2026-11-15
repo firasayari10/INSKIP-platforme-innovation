@@ -7,6 +7,7 @@ import { LoginPage } from "@/features/auth/LoginPage";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { ChallengesPage } from "@/features/challenges/ChallengesPage";
 import { ChallengePage } from "@/features/ideas/ChallengePage";
+import { IdeaPage } from "@/features/ideas/IdeaPage";
 import { ImportPage } from "@/features/import/ImportPage";
 import { publicConfig } from "@/lib/config";
 import { supabase } from "@/lib/supabase";
@@ -28,6 +29,7 @@ export function App() {
               <Route index element={<ChallengesPage />} />
               <Route path="challenges/:challengeId" element={<ChallengePage />} />
               <Route path="challenges/:challengeId/import" element={<ImportPage />} />
+              <Route path="challenges/:challengeId/idees/:ideaId" element={<IdeaPage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

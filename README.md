@@ -93,6 +93,15 @@ confirmation explicite.
   conservée ni dans le rapport d'analyse.
 - Réimporter un fichier met à jour les idées existantes (même identifiant) sans les dupliquer.
 
+## Consultation des idées : hypothèses
+
+- La liste affiche toutes les colonnes de l'idée ; les filtres (recherche, direction, thème, site,
+  points d'attention, doublons) sont gardés dans l'adresse de la page : ils survivent à un
+  rechargement et se partagent par lien.
+- Prénom et nom de l'auteur ne figurent pas dans la liste (minimisation) : ils ne sont visibles
+  que sur la fiche de l'idée.
+- « Doublon possible » = idée présente dans une paire détectée et non écartée.
+
 ## Sécurité
 
 - Projet Supabase hébergé dans l'Union européenne (`eu-north-1`, Stockholm) : les données
