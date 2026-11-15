@@ -1,38 +1,35 @@
-import { Card, CardContent } from "@/components/ui/card";
-import { APITester } from "./APITester";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { AppShell } from "@/components/AppShell";
+import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
+import { AuthCallbackPage } from "@/features/auth/AuthCallbackPage";
+import { AuthProvider } from "@/features/auth/AuthProvider";
+import { LoginPage } from "@/features/auth/LoginPage";
+import { RequireAuth } from "@/features/auth/RequireAuth";
+import { ChallengesPage } from "@/features/challenges/ChallengesPage";
+import { publicConfig } from "@/lib/config";
+import { supabase } from "@/lib/supabase";
 import "./index.css";
 
-import logo from "./logo.svg";
-import reactLogo from "./react.svg";
-
 export function App() {
-  return (
-    <div className="container mx-auto p-8 text-center relative z-10">
-      <div className="flex justify-center items-center gap-8 mb-8">
-        <img
-          src={logo}
-          alt="Bun Logo"
-          className="h-36 p-6 transition-all duration-300 hover:drop-shadow-[0_0_2em_#646cffaa] scale-120"
-        />
-        <img
-          src={reactLogo}
-          alt="React Logo"
-          className="h-36 p-6 transition-all duration-300 hover:drop-shadow-[0_0_2em_#61dafbaa] [animation:spin_20s_linear_infinite]"
-        />
-      </div>
+  if (!publicConfig.ok || !supabase) {
+    return <ConfigErrorScreen error={publicConfig.ok ? "missing" : publicConfig.error} />;
+  }
 
-      <Card className="bg-card/50 backdrop-blur-sm border-muted">
-        <CardContent className="pt-6">
-          <h1 className="text-5xl font-bold my-4 leading-tight">Bun + React</h1>
-          <p>
-            Edit{" "}
-            <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">src/App.tsx</code> and
-            save to test HMR
-          </p>
-          <APITester />
-        </CardContent>
-      </Card>
-    </div>
+  return (
+    <AuthProvider client={supabase}>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/connexion" element={<LoginPage />} />
+          <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          <Route element={<RequireAuth />}>
+            <Route element={<AppShell />}>
+              <Route index element={<ChallengesPage />} />
+            </Route>
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 

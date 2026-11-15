@@ -107,7 +107,7 @@ api/            →  lib/  →  domain/
 api/                    Vercel Functions — seul code autorisé à lire ANTHROPIC_API_KEY
 src/
   domain/               import (parse/normalise), scoring, duplicates, shortlist, schémas zod
-  features/             challenges/ import/ ideas/ scoring/ duplicates/ shortlist/
+  features/             auth/ challenges/ import/ ideas/ scoring/ duplicates/ shortlist/
   components/ui/        shadcn (générés, modifiés au minimum)
   components/           partagés : EmptyState, ErrorMessage, ConfirmDialog…
   hooks/  lib/  types/  types/database.ts est GÉNÉRÉ depuis Supabase
@@ -368,7 +368,7 @@ bun install          # dépendances
 bun dev              # dev local (HMR)
 bun run build        # build statique → dist/
 bun test             # tests
-bunx tsc --noEmit    # types (aussi en CI)
+bun run typecheck    # types (aussi en CI)
 ```
 
 ---
