@@ -56,3 +56,17 @@ Le flux `?code=` (PKCE) reste accepté pour le modèle par défaut.
 - **SSO d'entreprise** : pertinent à terme (V2), disproportionné pour la V1.
 - **Cookies httpOnly via un serveur** : plus robuste face au XSS mais impose un backend de
   session ; à reconsidérer si l'application s'ouvre à des utilisateurs externes.
+
+## Révision (16 novembre 2026) : inscription par domaine
+
+- **Inscription ouverte aux adresses `@inskip.fr`** (e-mail + mot de passe, adresse confirmée par
+  e-mail). La liste des domaines est en base (`signup_allowed_domains`) ; un trigger sur
+  `auth.users` refuse tout autre domaine, y compris un changement d'adresse après inscription. Le
+  formulaire fait un pré-contrôle (`signup_domain_allowed`) pour un message clair.
+- **Invitations inchangées** : un utilisateur invité passe quel que soit son domaine ; les comptes
+  existants ne sont pas revalidés.
+- **Mot de passe** : au moins 10 caractères, lettres et chiffres (72 octets max., limite bcrypt).
+  Le lien par e-mail reste disponible et ne crée jamais de compte.
+- **Anti-énumération** : même écran de confirmation que l'adresse ait déjà un compte ou non.
+- Données toujours cloisonnées : un inscrit ne voit que les challenges qu'il crée ; crédit IA de
+  5 €/mois par compte, d'où la restriction par domaine.

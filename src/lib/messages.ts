@@ -1,7 +1,7 @@
 import type { FieldKey, FileError, RowErrorCode, RowWarningCode } from "@/domain/importAnalysis";
 import type { CsvError } from "./csv";
 import type { DataError } from "./data";
-import type { AuthErrorCode, EmailError, OtpError } from "@/domain/auth";
+import type { AuthErrorCode, EmailError, OtpError, PasswordError } from "@/domain/auth";
 import type { ConfigError } from "./config";
 
 /** Seul endroit où les codes d'erreur deviennent des phrases pour l'utilisateur. */
@@ -17,6 +17,13 @@ export const otpErrorMessages: Record<OtpError, string> = {
   otp_invalid_format: "Le code reçu par e-mail ne contient que des chiffres. Vérifiez votre saisie.",
 };
 
+export const passwordErrorMessages: Record<PasswordError, string> = {
+  password_empty: "Saisissez votre mot de passe.",
+  password_too_short: "Le mot de passe doit contenir au moins 10 caractères.",
+  password_too_long: "Le mot de passe est trop long (72 caractères au maximum).",
+  password_too_weak: "Le mot de passe doit contenir au moins une lettre et un chiffre.",
+};
+
 export const authErrorMessages: Record<AuthErrorCode, string> = {
   rate_limited: "Trop de demandes en peu de temps. Patientez une minute avant de réessayer.",
   code_invalid_or_expired: "Ce code est incorrect ou a expiré. Vérifiez-le ou demandez un nouvel e-mail.",
@@ -24,6 +31,13 @@ export const authErrorMessages: Record<AuthErrorCode, string> = {
   link_other_browser:
     "Ce lien a été ouvert dans un autre navigateur que celui de la demande. Ouvrez-le dans le même navigateur, ou saisissez le code reçu dans l'e-mail.",
   account_disabled: "Votre accès a été désactivé. Contactez l'administrateur de la plateforme.",
+  invalid_credentials: "Adresse e-mail ou mot de passe incorrect.",
+  email_not_confirmed:
+    "Votre adresse n'est pas encore confirmée. Cliquez sur le lien reçu par e-mail lors de votre inscription.",
+  password_weak: "Ce mot de passe est trop simple. Choisissez-en un plus long, avec des lettres et des chiffres.",
+  signup_domain_not_allowed:
+    "L'inscription est réservée aux adresses professionnelles autorisées. Utilisez votre adresse @inskip.fr ou demandez une invitation.",
+  signup_unavailable: "L'inscription n'est pas ouverte pour le moment. Demandez une invitation à l'administrateur.",
   network: "Connexion au serveur impossible. Vérifiez votre accès à Internet puis réessayez.",
   unknown: "Une erreur inattendue s'est produite. Réessayez dans quelques instants.",
 };

@@ -5,6 +5,7 @@ import {
   parseEmail,
   parseCallbackParams,
   parseOtpCode,
+  parsePassword,
   RESEND_COOLDOWN_SECONDS,
   safeRedirectPath,
   secondsUntilResend,
@@ -187,5 +188,58 @@ describe("parseCallbackParams", () => {
 
   test("sans paramètre : lien incomplet", () => {
     expect(parseCallbackParams("", "")).toEqual({ kind: "invalid" });
+  });
+});
+
+describe("parsePassword", () => {
+  test("accepte un mot de passe de 10 caractères avec lettres et chiffres", () => {
+    expect(parsePassword("innovation26")).toEqual({ ok: true, value: "innovation26" });
+  });
+  test("refuse un mot de passe vide", () => {
+    expect(parsePassword("")).toEqual({ ok: false, error: "password_empty" });
+  });
+  test("refuse un mot de passe trop court", () => {
+    expect(parsePassword("abc12")).toEqual({ ok: false, error: "password_too_short" });
+  });
+  test("refuse un mot de passe trop long (limite bcrypt de 72 octets)", () => {
+    expect(parsePassword("a1".repeat(40))).toEqual({ ok: false, error: "password_too_long" });
+  });
+  test("refuse un mot de passe sans chiffre ou sans lettre", () => {
+    expect(parsePassword("motdepasselong")).toEqual({ ok: false, error: "password_too_weak" });
+    expect(parsePassword("12345678901")).toEqual({ ok: false, error: "password_too_weak" });
+  });
+  test("ne retire pas les espaces : ils font partie du mot de passe", () => {
+    expect(parsePassword(" innovation26 ")).toEqual({ ok: true, value: " innovation26 " });
+  });
+});
+
+describe("classifyAuthError : inscription et mot de passe", () => {
+  test("identifiants incorrects à la connexion par mot de passe", () => {
+    expect(classifyAuthError({ code: "invalid_credentials", status: 400 }, "sign_in_password")).toBe("invalid_credentials");
+  });
+  test("adresse pas encore confirmée", () => {
+    expect(classifyAuthError({ code: "email_not_confirmed", status: 400 }, "sign_in_password")).toBe("email_not_confirmed");
+  });
+  test("mot de passe jugé trop faible par le serveur", () => {
+    expect(classifyAuthError({ code: "weak_password", status: 422 }, "sign_up")).toBe("password_weak");
+  });
+  test("domaine refusé par la base (erreur générique du serveur à l'inscription)", () => {
+    expect(classifyAuthError({ code: "unexpected_failure", status: 500 }, "sign_up")).toBe("signup_domain_not_allowed");
+  });
+  test("inscriptions désactivées côté serveur", () => {
+    expect(classifyAuthError({ code: "signup_disabled", status: 422 }, "sign_up")).toBe("signup_unavailable");
+  });
+  test("trop d'envois d'e-mails à l'inscription", () => {
+    expect(classifyAuthError({ code: "over_email_send_rate_limit", status: 429 }, "sign_up")).toBe("rate_limited");
+  });
+});
+
+describe("parseCallbackParams : confirmation d'inscription", () => {
+  test("accepte un lien de confirmation d'inscription (type signup)", () => {
+    expect(parseCallbackParams("?token_hash=abcdefghijklmnop1234&type=signup", "")).toEqual({
+      kind: "token_hash",
+      tokenHash: "abcdefghijklmnop1234",
+      type: "signup",
+    });
   });
 });

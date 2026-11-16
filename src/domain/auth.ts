@@ -34,6 +34,22 @@ export function parseOtpCode(input: string): Result<string, OtpError> {
   return ok(code);
 }
 
+// ---------- Mot de passe ----------
+
+export type PasswordError = "password_empty" | "password_too_short" | "password_too_long" | "password_too_weak";
+
+export const PASSWORD_MIN_LENGTH = 10;
+const PASSWORD_MAX_BYTES = 72; // au-delà, bcrypt (Supabase Auth) ignore la fin du mot de passe
+
+/** Au moins 10 caractères, une lettre et un chiffre. Le mot de passe n'est jamais modifié (espaces compris). */
+export function parsePassword(input: string): Result<string, PasswordError> {
+  if (input.length === 0) return err("password_empty");
+  if (input.length < PASSWORD_MIN_LENGTH) return err("password_too_short");
+  if (new TextEncoder().encode(input).length > PASSWORD_MAX_BYTES) return err("password_too_long");
+  if (!/\p{L}/u.test(input) || !/\p{N}/u.test(input)) return err("password_too_weak");
+  return ok(input);
+}
+
 // ---------- Redirection après connexion ----------
 
 export const DEFAULT_REDIRECT = "/";
@@ -69,8 +85,8 @@ export function safeRedirectPath(raw: string | null | undefined): string {
 
 // ---------- Retour depuis un lien reçu par e-mail ----------
 
-/** Types de lien acceptés : connexion et invitation. Pas de mot de passe, donc pas de « recovery ». */
-const LINK_TYPES = ["email", "magiclink", "invite"] as const;
+/** Types de lien acceptés : connexion, invitation et confirmation d'inscription. */
+const LINK_TYPES = ["email", "magiclink", "invite", "signup"] as const;
 export type LinkType = (typeof LINK_TYPES)[number];
 
 export type CallbackParams =
@@ -118,6 +134,11 @@ export type AuthErrorCode =
   | "link_invalid_or_expired"
   | "link_other_browser"
   | "account_disabled"
+  | "invalid_credentials"
+  | "email_not_confirmed"
+  | "password_weak"
+  | "signup_domain_not_allowed"
+  | "signup_unavailable"
   | "network"
   | "unknown";
 
@@ -129,7 +150,7 @@ export interface AuthErrorLike {
   message?: string | null;
 }
 
-export type AuthAction = "send_link" | "verify_code" | "exchange_link";
+export type AuthAction = "send_link" | "verify_code" | "exchange_link" | "sign_up" | "sign_in_password";
 
 /**
  * Codes signifiant « adresse non autorisée ». Ils ne doivent JAMAIS être révélés à
@@ -151,6 +172,19 @@ export function classifyAuthError(error: AuthErrorLike, action: AuthAction): Aut
   }
   if (code === "user_banned") return "account_disabled";
   if (error.name === "AuthRetryableFetchError" || error.status === 0) return "network";
+
+  if (action === "sign_in_password") {
+    if (code === "email_not_confirmed") return "email_not_confirmed";
+    if (code === "invalid_credentials" || error.status === 400) return "invalid_credentials";
+    return "unknown";
+  }
+  if (action === "sign_up") {
+    if (code === "weak_password") return "password_weak";
+    if (code === "signup_disabled" || code === "email_provider_disabled") return "signup_unavailable";
+    // Le refus du domaine par la base remonte comme une erreur générique du serveur d'auth.
+    if (code === "unexpected_failure" || error.status === 500) return "signup_domain_not_allowed";
+    return "unknown";
+  }
 
   if (code === "bad_code_verifier" || code === "flow_state_not_found") return "link_other_browser";
   if (code === "otp_expired" || code === "flow_state_expired") {

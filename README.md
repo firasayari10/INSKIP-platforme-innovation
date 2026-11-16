@@ -9,7 +9,7 @@ de chaque idée par une équipe d'agents IA (l'humain valide toujours la note fi
 
 ## Aperçu
 
-**URL de l'application** : https://innovationplatform-jet.vercel.app (accès sur invitation).
+**URL de l'application** : https://innovationplatform-jet.vercel.app (inscription avec une adresse @inskip.fr, ou sur invitation).
 
 | Liste des idées et filtres | Fiche d'une idée et évaluation des agents | Rapport pour le jury |
 |---|---|---|
@@ -115,7 +115,7 @@ shortlist d'environ 8 idées argumentée pour le jury.
 - **Coût IA** : 5 € de crédit par utilisateur et par mois.
 - Un évaluateur par challenge ; idées en français ; toutes les données de démo sont fictives.
 
-**V1 (livrée)** : connexion sur invitation ; import CSV avec rapport d'anomalies ; liste complète
+**V1 (livrée)** : inscription réservée aux adresses @inskip.fr et connexion sur invitation ; import CSV avec rapport d'anomalies ; liste complète
 filtrable (direction, thème, site, anomalies, doublons) et fiche par idée ; notation automatique
 par agents avec justification détaillée et sources web ; validation humaine ; discussion ✨ avec
 l'IA (`@IDEA-xxx`) ; doublons ; rapport top 8 imprimable en PDF ; crédits IA et limites de débit.
@@ -132,7 +132,7 @@ grilles.
 
 ```mermaid
 flowchart TB
-    subgraph Nav["Navigateur — application React"]
+    subgraph Nav["Navigateur : application React"]
         UI["Écrans : import, liste, fiche,<br/>discussion, rapport, crédits"]
         DOM["Logique métier pure (src/domain)<br/>import, doublons, classement,<br/>pseudonymisation"]
     end
@@ -140,11 +140,11 @@ flowchart TB
         STATIC["Site statique (dist/)"]
         API["api/evaluate-idea<br/>api/idea-chat"]
     end
-    subgraph SB["Supabase — UE"]
-        AUTH["Auth sans mot de passe<br/>(sur invitation)"]
+    subgraph SB["Supabase, UE"]
+        AUTH["Auth : mot de passe ou lien<br/>(domaine @inskip.fr ou invitation)"]
         PG[("Postgres + RLS")]
     end
-    RED[("Upstash Redis — UE<br/>limites partagées")]
+    RED[("Upstash Redis, UE<br/>limites partagées")]
     LLM["IA : Z.ai GLM ou OpenRouter"]
 
     UI --> DOM
@@ -184,7 +184,7 @@ sequenceDiagram
     end
     par un consultant par critère
         S->>C: impact · faisabilité · alignement · innovation
-        C-->>S: note 1–5, pour/contre, sources vérifiées
+        C-->>S: note de 1 à 5, pour/contre, sources vérifiées
     end
     S->>P: synthèse et recommandation
     P-->>S: retenir / à discuter / écarter
@@ -224,6 +224,18 @@ erDiagram
 | Import **atomique** (fonction `import_ideas`) et idempotent (`external_ref` unique) | pas d'import à moitié fait ; un réimport ne duplique pas |
 | Budget brut **et** normalisé (`budget_raw`, `budget_eur`) | « 15k€ » devient 15 000 € sans perdre la saisie d'origine |
 
+### Interface pensée pour Camille
+
+| Principe | Dans l'application |
+|---|---|
+| **Parcours simple** | Importer, consulter, noter, rapport ; l'évaluation d'une idée démarre seule à l'ouverture de sa fiche |
+| **Vocabulaire métier** | tout en français, vouvoiement ; idée, grille, note, doublon, aucun terme technique |
+| **Repères Excel** | tableau avec toutes les colonnes, filtres par direction, thème, site, anomalies et doublons, gardés dans l'adresse de la page |
+| **États prévus** | chargement, liste vide (avec l'action suivante), erreur (ce qui s'est passé et quoi faire) sur chaque écran |
+| **Messages d'erreur utiles** | ex. « Ce lien de connexion n'est plus valable. Demandez-en un nouveau, il est valable une heure. » (tous dans `src/lib/messages.ts`) |
+| **IA distincte de l'humain** | la note proposée par l'IA est visuellement séparée de la note validée ; crédit IA restant visible (🪙) |
+| **Accessibilité** | navigation au clavier, libellés sur tous les champs, messages annoncés aux lecteurs d'écran |
+
 ### Stack
 
 | Couche | Choix | Raison |
@@ -250,21 +262,25 @@ serveur MCP Supabase **en lecture seule** pour inspecter le schéma et les journ
 projet sont écrites dans [`CLAUDE.md`](CLAUDE.md) : boucle cadrer → explorer → planifier → tester
 → implémenter → vérifier, checklist sécurité, et **aucun commit sans mon accord**.
 
+**Garder la main** : j'ai avancé par petites étapes, une fonctionnalité par commit (voir
+l'historique et le [journal](#6-journal)), en testant chaque étape à la main dans l'application
+avant de valider le commit. Les migrations de base ont été appliquées par moi, après relecture.
+
 **Mes prompts les plus utiles** (reformulés) :
 
-1. **Poser le cadre avant le code** — « Écris un CLAUDE.md comme un ingénieur IA senior : façons de
+1. **Poser le cadre avant le code** : « Écris un CLAUDE.md comme un ingénieur IA senior : façons de
    penser et processus à respecter pour que l'implémentation soit efficace, sécurisée et testée ;
    structure le dépôt avant de construire quoi que ce soit. » → toutes les sessions suivantes ont
    suivi les mêmes règles (tests d'abord, RLS, pas de secret, demander avant de commiter).
-2. **Import avec analyse** — « Upload du CSV → analyse des données (doublons, lignes vides…) →
+2. **Import avec analyse** : « Upload du CSV → analyse des données (doublons, lignes vides…) →
    stockage dans Supabase, avec l'agent database-architect et des migrations via la CLI. » → rapport
    d'anomalies ligne à ligne avant tout enregistrement.
-3. **Agents de notation** — « Des agents, un par critère, orchestrés par un consultant senior, qui
+3. **Agents de notation** : « Des agents, un par critère, orchestrés par un consultant senior, qui
    recherchent de vraies sources (rapports, analyses de marché), expliquent la note en détail, et
    estiment logiquement les données manquantes ; on est dans un contexte de conseil. »
-4. **Protéger les personnes** — « Avant d'envoyer une idée au LLM, il faut une pseudonymisation qui
+4. **Protéger les personnes** : « Avant d'envoyer une idée au LLM, il faut une pseudonymisation qui
    enlève les données sensibles pour enlever les biais. »
-5. **Maîtriser le coût** — « Cache des notes déjà attribuées, Redis pour la limitation de débit,
+5. **Maîtriser le coût** : « Cache des notes déjà attribuées, Redis pour la limitation de débit,
    un crédit de 5 € par utilisateur avec un indicateur de consommation ; ne teste pas avec la clé
    GLM, simule les réponses. »
 
@@ -286,12 +302,12 @@ lisible ; elle a été annulée (commit « Revient au design précédent »).
 
 ## 4. Fiabilisation
 
-**Ce que j'ai testé et pourquoi** — en priorité la logique qui fait le résultat livré au jury :
+**Ce que j'ai testé et pourquoi** : en priorité la logique qui fait le résultat livré au jury :
 
 | Zone | Fichiers | Pourquoi |
 |---|---|---|
 | **Import** | `import-analysis`, `import-fields`, `import-hexavia` (le vrai format, fictif) | un export mal lu fausse tout le reste : BOM, séparateurs, en-têtes variables, lignes vides ou invalides isolées, budgets « 15k€ », dates françaises, cellules formule, réimport idempotent |
-| **Notation** | `scoring`, `evaluate-idea`, `evaluate-handler`, `zai-client` | moyenne pondérée, bornes 1–5, réponse IA invalide rejetée, sources non vérifiées écartées, note humaine jamais écrasée, erreurs du fournisseur (429, 1113, délai) |
+| **Notation** | `scoring`, `evaluate-idea`, `evaluate-handler`, `zai-client` | moyenne pondérée, bornes de 1 à 5, réponse IA invalide rejetée, sources non vérifiées écartées, note humaine jamais écrasée, erreurs du fournisseur (429, 1113, délai) |
 | **Doublons** | `similarity` | reformulations détectées, faux positifs écartés, symétrie, textes vides |
 | **Shortlist** | `shortlist` | taille respectée, note validée prioritaire, doublons regroupés, départage stable des égalités |
 | **Données personnelles** | `pseudonymize` | noms, e-mails, téléphones, IBAN, âges masqués avant l'IA |
@@ -327,17 +343,32 @@ de démarrer** si une clé secrète y est placée, ou si Upstash manque en produ
 | Limites partagées | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | obligatoires en production |
 | Contexte client | page du challenge (pas de variable) | contexte supposé (§1) |
 
-### Ce qui manque avant de le confier à Camille
+### Secrets et données personnelles
 
-- **SMTP** dans Supabase (ex. Brevo) : sans lui, 2 e-mails/heure et pas d'invitation fiable.
-- **Clé d'IA de production** (API standard avec crédit) : la clé de test « Coding Plan » n'a pas
-  de recherche web.
-- **Barème réel** des modèles, pour que le crédit de 5 € corresponde à une vraie dépense.
-- **Recette complète** sur https://innovationplatform-jet.vercel.app, avec le vrai contexte
-  stratégique d'Hexavia saisi.
-- **Base séparée** pour les prévisualisations (aujourd'hui partagée avec la production).
-- **Export Excel** de la shortlist (aujourd'hui : PDF via l'impression).
-- Une courte **prise en main** avec Camille (30 min) sur un vrai fichier.
+- **Aucun secret dans le dépôt** : les clés vivent dans `.env.local` (ignoré par Git) et dans les
+  variables de Vercel ; [`.env.example`](.env.example) ne contient que des exemples.
+- **Les clés ne quittent jamais le serveur** : le navigateur n'a que l'adresse Supabase et la clé
+  publique, protégée par la RLS.
+- **Données des auteurs isolées** (`idea_authors`) : visibles seulement sur la fiche d'une idée,
+  absentes de la liste, du rapport et des journaux.
+- **Pseudonymisation** de tout texte envoyé à l'IA (noms, e-mails, téléphones, âges…) ; fournisseurs
+  qui réutilisent les données exclus.
+- **Hébergement dans l'UE** (Supabase, Upstash) ; inscription **réservée au domaine @inskip.fr** (vérifiée en base), sinon sur invitation ; en-têtes de
+  sécurité (CSP, HSTS) en production.
+
+### Avec plus de temps et de ressources
+
+L'outil est en ligne et couvre tout le parcours de Camille. Avec plus de temps et de moyens, je
+l'optimiserais ainsi :
+
+- **Envoi d'e-mails professionnel** (SMTP dédié, ex. Brevo) : invitations et liens de connexion
+  aux couleurs du cabinet, à grande échelle.
+- **Modèles d'IA haut de gamme** avec recherche web étendue, pour des analyses encore plus
+  sourcées.
+- **Pilotage des coûts au centime près**, avec le barème exact du fournisseur retenu.
+- **Environnement de recette dédié**, séparé de la production, pour valider chaque nouveauté.
+- **Export Excel** de la shortlist en plus du rapport PDF.
+- **Atelier de prise en main** de 30 minutes avec Camille sur ses propres fichiers.
 
 ---
 
@@ -361,6 +392,8 @@ Journée du 15 novembre 2026 (heures des commits).
 | 18:52 | Crédits IA de 5 € par utilisateur et par mois |
 | 19:00 | Limitation de débit partagée (Upstash Redis) |
 | 19:20 | Rapport final du top 8 pour le jury ; préparation du déploiement Vercel |
+| 16 nov. | Mise en ligne sur Vercel et correction des chemins du build |
+| 16 nov. | Identité visuelle INSKIP ; inscription réservée au domaine @inskip.fr |
 
 ---
 
