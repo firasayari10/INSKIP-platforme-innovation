@@ -49,8 +49,10 @@ export function LoginPage() {
     const { data: allowed, error: checkError } = await client.rpc("signup_domain_allowed", { p_email: email });
     if (!checkError && allowed === false) return authErrorMessages.signup_domain_not_allowed;
 
-    const { error } = await client.auth.signUp({ email, password, options: { emailRedirectTo: callbackUrl() } });
+    const { data, error } = await client.auth.signUp({ email, password, options: { emailRedirectTo: callbackUrl() } });
     if (error) return authErrorMessages[classifyAuthError(error, "sign_up") ?? "unknown"];
+    // Confirmation d'e-mail désactivée dans Supabase : session immédiate, AuthProvider redirige.
+    if (data.session) return null;
     // Même écran si l'adresse a déjà un compte : on ne révèle pas qui est inscrit.
     setStep({ name: "signup_sent", email });
     return null;
@@ -209,7 +211,7 @@ function PasswordForm({
         <h2 className="text-2xl font-semibold tracking-tight">{signUp ? "Créer un compte" : "Connexion"}</h2>
         <p className="text-sm text-muted-foreground text-pretty">
           {signUp
-            ? "Réservé aux adresses professionnelles @inskip.fr. Un e-mail vous sera envoyé pour confirmer votre adresse."
+            ? "Réservé aux adresses professionnelles @inskip.fr."
             : "Saisissez votre adresse e-mail professionnelle et votre mot de passe."}
         </p>
       </header>
