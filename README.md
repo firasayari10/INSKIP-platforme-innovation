@@ -399,7 +399,9 @@ l'optimiserais ainsi :
 
 ## 6. Journal
 
-Journée du 15 novembre 2026 (heures des commits).
+15 et 16 novembre 2026 (heures des commits).
+
+**15 novembre**
 
 | Heure | Étape |
 |---|---|
@@ -417,9 +419,17 @@ Journée du 15 novembre 2026 (heures des commits).
 | 18:52 | Crédits IA de 5 € par utilisateur et par mois |
 | 19:00 | Limitation de débit partagée (Upstash Redis) |
 | 19:20 | Rapport final du top 8 pour le jury ; préparation du déploiement Vercel |
-| 16 nov. | Mise en ligne sur Vercel et correction des chemins du build |
-| 16 nov. | Identité visuelle INSKIP ; inscription réservée au domaine @inskip.fr |
-| 16 nov. | Connexion par mot de passe sans e-mail ; dernières vérifications avant rendu |
+| Soirée | Mise en ligne sur Vercel |
+
+**16 novembre**
+
+| Heure | Étape |
+|---|---|
+| 08:41 | Correction des chemins du build (page blanche après connexion) |
+| 08:45 | README restructuré, lien de l'application en ligne |
+| 09:24 | Identité visuelle INSKIP ; inscription réservée au domaine @inskip.fr |
+| 09:38 | Connexion par mot de passe sans e-mail |
+| 09:48 | Dernières vérifications et captures d'écran avant rendu |
 
 ---
 
