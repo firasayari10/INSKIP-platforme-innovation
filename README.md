@@ -40,7 +40,7 @@ git clone https://github.com/firasayari10/INSKIP-platforme-innovation.git
 cd INSKIP-platforme-innovation
 bun install
 
-# 2. Créer les tables dans votre projet Supabase (5 migrations)
+# 2. Créer les tables dans votre projet Supabase (6 migrations)
 bunx supabase login
 bunx supabase link --project-ref <référence-du-projet>
 bunx supabase db push --remote
@@ -60,8 +60,9 @@ bun dev                        # http://localhost:3000
 | `ZAI_API_KEY` (ou `LLM_PROVIDER=openrouter` + `OPENROUTER_API_KEY`) | console du fournisseur d'IA |
 
 Dans Supabase → **Authentication** : *URL Configuration* → Site URL `http://localhost:3000`,
-Redirect URL `http://localhost:3000/auth/callback` ; *Users → Add user* pour créer votre compte
-(*Auto Confirm*). Connectez-vous avec votre e-mail, créez un challenge et importez
+Redirect URL `http://localhost:3000/auth/callback` ; *Sign In / Providers* → activer *Allow new users to
+sign up* et, dans *Email*, désactiver *Confirm email* (aucun SMTP requis). Créez ensuite un compte
+sur l'onglet **Créer un compte** avec une adresse @inskip.fr, créez un challenge et importez
 `tests/fixtures/idees_hexavia.csv` (40 idées fictives).
 
 | Commande | Rôle |
@@ -312,10 +313,10 @@ lisible ; elle a été annulée (commit « Revient au design précédent »).
 | **Shortlist** | `shortlist` | taille respectée, note validée prioritaire, doublons regroupés, départage stable des égalités |
 | **Données personnelles** | `pseudonymize` | noms, e-mails, téléphones, IBAN, âges masqués avant l'IA |
 | **Coût et robustesse** | `cache`, `credits`, `gate`, `rate-limiter`, `batch` | pas de double paiement, crédit jamais négatif, limites et coupe-circuit |
-| **Sécurité / accès** | `auth`, `chat-handler`, `config` | jeton obligatoire (401), entrées invalides (400), clé secrète refusée côté navigateur |
-| **Base de données** | `supabase/tests/*.test.sql` (pgTAP, 351 tests) | RLS : un utilisateur ne voit que ses challenges ; l'IA n'écrit pas les notes finales ; journal de crédits immuable |
+| **Sécurité / accès** | `auth`, `chat-handler`, `config` | mot de passe (longueur, lettres et chiffres), redirections sûres, jeton obligatoire (401), entrées invalides (400), clé secrète refusée côté navigateur |
+| **Base de données** | `supabase/tests/*.test.sql` (pgTAP, 385 tests) | RLS : un utilisateur ne voit que ses challenges ; inscription refusée hors domaine autorisé ; l'IA n'écrit pas les notes finales ; journal de crédits immuable |
 
-**358 tests applicatifs**, aucun appel réseau : un préchargement (`tests/setup/no-network.ts`)
+**371 tests applicatifs**, aucun appel réseau : un préchargement (`tests/setup/no-network.ts`)
 bloque toute sortie, les réponses de l'IA sont simulées. Les tests pgTAP sont lancés à la main
 contre une base Postgres de test.
 
@@ -342,6 +343,13 @@ de démarrer** si une clé secrète y est placée, ou si Upstash manque en produ
 | Quotas par utilisateur | `API_REQUESTS_PER_MINUTE_PER_USER`, `EVALUATIONS_PER_HOUR`, `CHAT_MESSAGES_PER_HOUR` | 30, 60, 120 |
 | Limites partagées | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | obligatoires en production |
 | Contexte client | page du challenge (pas de variable) | contexte supposé (§1) |
+| Domaines d'inscription | table `signup_allowed_domains` (une ligne par domaine, ajoutée par migration) | `inskip.fr` |
+
+**Connexion** : réglée dans Supabase (*Authentication*), sans SMTP : inscription ouverte, confirmation
+d'e-mail désactivée, mot de passe de 10 caractères minimum. Inscription et connexion par mot de passe
+n'envoient aucun e-mail ; le lien par e-mail reste disponible pour les comptes invités, dans la
+limite d'envoi de Supabase. Les comptes existants gardent leur accès ; un mot de passe peut leur être
+ajouté depuis le SQL Editor (`extensions.crypt`).
 
 ### Secrets et données personnelles
 
@@ -394,6 +402,7 @@ Journée du 15 novembre 2026 (heures des commits).
 | 19:20 | Rapport final du top 8 pour le jury ; préparation du déploiement Vercel |
 | 16 nov. | Mise en ligne sur Vercel et correction des chemins du build |
 | 16 nov. | Identité visuelle INSKIP ; inscription réservée au domaine @inskip.fr |
+| 16 nov. | Connexion par mot de passe sans e-mail ; dernières vérifications avant rendu |
 
 ---
 
