@@ -11,11 +11,28 @@ de chaque idée par une équipe d'agents IA (l'humain valide toujours la note fi
 
 **URL de l'application** : https://innovationplatform-jet.vercel.app (inscription avec une adresse @inskip.fr, ou sur invitation).
 
-| Liste des idées et filtres | Fiche d'une idée et évaluation des agents | Rapport pour le jury |
-|---|---|---|
-| _capture : `docs/captures/liste.png`_ | _capture : `docs/captures/fiche.png`_ | _capture : `docs/captures/rapport.png`_ |
+**Page d'un challenge** : contexte client, notation par lot, filtres et tableau de toutes les idées.
 
-<!-- Remplacer chaque cellule par ![…](docs/captures/xxx.png) une fois les captures ajoutées. -->
+![Page d'un challenge : contexte, notation et liste filtrable des idées](docs/captures/challenge.png)
+
+**Évaluation d'une idée** : synthèse de l'associé senior, recommandation, points forts et faibles.
+
+![Évaluation d'une idée par l'équipe d'agents](docs/captures/evaluation.png)
+
+**Discussion avec l'IA** : expliquer une décision, comparer avec une autre idée citée par `@IDEA-xxx`.
+
+![Discussion avec l'associé senior sur une idée](docs/captures/discussion.png)
+
+<details>
+<summary>Autres écrans : connexion, liste des challenges, validation des notes par critère</summary>
+
+![Connexion et inscription](docs/captures/connexion.png)
+
+![Liste des challenges](docs/captures/challenges.png)
+
+![Validation humaine des notes, critère par critère](docs/captures/notes.png)
+
+</details>
 
 ```mermaid
 flowchart LR
