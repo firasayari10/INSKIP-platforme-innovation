@@ -1,4 +1,4 @@
-import { ChevronRight, FolderOpen, LoaderCircle, Plus } from "lucide-react";
+import { ChevronRight, LoaderCircle, Plus, Rocket } from "lucide-react";
 import { useId, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { Alert } from "@/components/Alert";
@@ -41,7 +41,7 @@ export function ChallengesPage() {
         (state.data.length === 0 ? (
           !creating && (
             <EmptyState
-              icon={FolderOpen}
+              icon={Rocket}
               title="Aucun challenge pour le moment"
               action={
                 <Button onClick={() => setCreating(true)}>

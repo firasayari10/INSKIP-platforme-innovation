@@ -1,4 +1,4 @@
-import { Coins, LoaderCircle } from "lucide-react";
+import { Gauge, LoaderCircle } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { creditLevel, formatEuros } from "@/domain/credits";
 import { useAuth } from "@/features/auth/AuthProvider";
@@ -51,7 +51,7 @@ export function CreditBadge() {
   }, [open]);
 
   if (credit.state.status === "loading")
-    return <LoaderCircle className="size-4 animate-spin text-muted-foreground" aria-label="Chargement des crédits IA" />;
+    return <LoaderCircle className="size-4 animate-spin text-white/60" aria-label="Chargement des crédits IA" />;
   if (credit.state.status === "error") return null; // l'en-tête reste utilisable sans l'indicateur
 
   const c = credit.state.data;
@@ -68,13 +68,13 @@ export function CreditBadge() {
         aria-controls={`${id}-panel`}
         className={cn(
           "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm tabular-nums",
-          level === "ok" && "border-border text-foreground",
+          level === "ok" && "border-white/25 text-white hover:bg-white/10",
           level === "attention" && "border-amber-300 bg-amber-50 text-amber-900",
           level === "epuise" && "border-red-300 bg-red-50 text-red-800",
         )}
         title="Crédit IA du mois"
       >
-        <Coins className="size-4" aria-hidden />
+        <Gauge className="size-4" aria-hidden />
         {level === "epuise" ? "Crédit IA épuisé" : `${formatEuros(Math.max(0, c.remaining_micro_eur))}`}
         <span className="sr-only"> restants sur votre crédit IA du mois</span>
       </button>
@@ -82,7 +82,7 @@ export function CreditBadge() {
       {open && (
         <div
           id={`${id}-panel`}
-          className="absolute right-0 top-full z-50 mt-2 w-80 space-y-3 rounded-lg border bg-popover p-4 text-sm shadow-lg"
+          className="absolute right-0 top-full z-50 mt-2 w-80 space-y-3 rounded-lg border bg-popover p-4 text-sm text-popover-foreground shadow-lg"
         >
           <div>
             <p className="font-semibold">Crédit IA — {monthName.format(new Date(`${c.month}T00:00:00`))}</p>

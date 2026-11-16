@@ -1,30 +1,30 @@
-import { Copy, FileUp, Lightbulb, ShieldCheck, Sparkles, Trophy } from "lucide-react";
+import { BrainCircuit, FileSpreadsheet, GitMerge, Presentation, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
+import logoUrl from "@/assets/logo-inskip.png";
 
 const steps = [
-  { Icon: FileUp, title: "Importer", text: "Déposez l'export du formulaire, les idées sont prêtes en quelques secondes." },
-  { Icon: Sparkles, title: "Noter", text: "L'IA propose une note justifiée sur chaque critère, vous gardez le dernier mot." },
-  { Icon: Copy, title: "Dédoublonner", text: "Les idées proches sont repérées pour vous, vous décidez." },
-  { Icon: Trophy, title: "Présenter", text: "Une shortlist claire, prête à être envoyée au jury." },
+  { Icon: FileSpreadsheet, title: "Importer", text: "Déposez l'export du formulaire, les idées sont prêtes en quelques secondes." },
+  { Icon: BrainCircuit, title: "Noter", text: "L'IA propose une note justifiée sur chaque critère, vous gardez le dernier mot." },
+  { Icon: GitMerge, title: "Dédoublonner", text: "Les idées proches sont repérées pour vous, vous décidez." },
+  { Icon: Presentation, title: "Présenter", text: "Une shortlist claire, prête à être envoyée au jury." },
 ];
 
+/** Logo INSKIP (fond bleu nuit intégré à l'image) et nom de l'espace. */
 export function BrandMark({ inverted = false }: { inverted?: boolean }) {
   return (
-    <div className="flex items-center gap-2.5">
-      <span
-        className={
-          inverted
-            ? "flex size-9 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/15"
-            : "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground"
-        }
-      >
-        <Lightbulb className="size-5" aria-hidden />
-      </span>
-      <span className="leading-tight">
-        <span className="block text-[15px] font-semibold tracking-tight">Challenge Innovation</span>
-        <span className={inverted ? "block text-xs text-white/60" : "block text-xs text-muted-foreground"}>
-          Espace évaluateur
+    <div className="flex items-center gap-3">
+      <img
+        src={logoUrl}
+        alt="INSKIP"
+        width={510}
+        height={134}
+        className={inverted ? "h-8 w-auto" : "h-8 w-auto rounded-md"}
+      />
+      <span className={`hidden border-l pl-3 leading-tight sm:block ${inverted ? "border-white/20" : "border-border"}`}>
+        <span className={`block text-[13px] font-semibold tracking-tight ${inverted ? "text-white" : "text-foreground"}`}>
+          Challenge Innovation
         </span>
+        <span className={`block text-[11px] ${inverted ? "text-white/60" : "text-muted-foreground"}`}>Espace évaluateur</span>
       </span>
     </div>
   );
@@ -34,14 +34,14 @@ export function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="grid min-h-screen bg-background lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
       {/* Panneau de présentation (masqué sur petit écran) */}
-      <aside className="relative hidden overflow-hidden bg-zinc-950 text-white lg:flex lg:flex-col lg:justify-between lg:p-12">
+      <aside className="relative hidden overflow-hidden bg-brand-navy text-white lg:flex lg:flex-col lg:justify-between lg:p-12">
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-32 -top-32 size-[28rem] rounded-full bg-indigo-500/25 blur-3xl"
+          className="pointer-events-none absolute -right-32 -top-32 size-[28rem] rounded-full bg-indigo-500/20 blur-3xl"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute -bottom-40 -left-24 size-[26rem] rounded-full bg-amber-400/10 blur-3xl"
+          className="pointer-events-none absolute -bottom-40 -left-24 size-[26rem] rounded-full bg-brand-lime/10 blur-3xl"
         />
 
         <div className="relative">
@@ -62,11 +62,11 @@ export function AuthLayout({ children }: { children: ReactNode }) {
             {steps.map(({ Icon, title, text }, i) => (
               <li key={title} className="flex gap-4">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.07] ring-1 ring-white/10">
-                  <Icon className="size-4 text-indigo-200" aria-hidden />
+                  <Icon className="size-4 text-brand-lime" aria-hidden />
                 </span>
                 <div>
                   <p className="text-sm font-medium">
-                    <span className="mr-1.5 text-white/40">{i + 1}.</span>
+                    <span className="mr-1.5 text-brand-lime/70">{i + 1}.</span>
                     {title}
                   </p>
                   <p className="text-sm text-white/55">{text}</p>
@@ -78,7 +78,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
 
         <p className="relative flex items-center gap-2 text-xs text-white/45">
           <ShieldCheck className="size-4" aria-hidden />
-          Accès réservé aux évaluateurs invités. Connexion sans mot de passe.
+          Accès réservé aux équipes INSKIP et aux évaluateurs invités.
         </p>
       </aside>
 

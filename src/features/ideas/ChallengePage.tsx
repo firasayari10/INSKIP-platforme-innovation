@@ -1,4 +1,4 @@
-import { ArrowLeft, FileText, FileUp, Inbox, SearchX } from "lucide-react";
+import { ArrowLeft, FileSpreadsheet, Presentation, SearchX } from "lucide-react";
 import { useMemo } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { EmptyState, ErrorBlock, LoadingBlock } from "@/components/PageStates";
@@ -49,7 +49,7 @@ export function ChallengePage() {
   const importLink = (
     <Button asChild>
       <Link to={`/challenges/${c.id}/import`}>
-        <FileUp className="size-4" aria-hidden />
+        <FileSpreadsheet className="size-4" aria-hidden />
         Importer des idées
       </Link>
     </Button>
@@ -71,7 +71,7 @@ export function ChallengePage() {
             <div className="flex flex-wrap gap-2">
               <Button asChild variant="outline">
                 <Link to={`/challenges/${c.id}/rapport`}>
-                  <FileText className="size-4" aria-hidden />
+                  <Presentation className="size-4" aria-hidden />
                   Rapport pour le jury
                 </Link>
               </Button>
@@ -87,7 +87,7 @@ export function ChallengePage() {
       )}
       {ideas.state.status === "ready" &&
         (ideas.state.data.length === 0 ? (
-          <EmptyState icon={Inbox} title="Aucune idée dans ce challenge" action={importLink}>
+          <EmptyState icon={FileSpreadsheet} title="Aucune idée dans ce challenge" action={importLink}>
             Importez l'export du formulaire de dépôt : le fichier sera analysé avant d'être enregistré.
           </EmptyState>
         ) : (

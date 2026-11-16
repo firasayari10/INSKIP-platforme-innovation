@@ -38,8 +38,8 @@ export function EmptyState({
 }) {
   return (
     <section className="flex flex-col items-center rounded-xl border border-dashed bg-background px-6 py-14 text-center">
-      <span className="flex size-12 items-center justify-center rounded-full bg-muted">
-        <Icon className="size-6 text-muted-foreground" aria-hidden />
+      <span className="flex size-12 items-center justify-center rounded-xl bg-brand-navy">
+        <Icon className="size-6 text-brand-lime" aria-hidden />
       </span>
       <h2 className="mt-4 text-base font-medium">{title}</h2>
       <div className="mt-1 max-w-md text-sm text-muted-foreground text-pretty">{children}</div>
