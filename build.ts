@@ -19,6 +19,8 @@ const result = await Bun.build({
   minify: true,
   target: "browser",
   sourcemap: "linked",
+  // Chemins absolus : sinon /auth/callback charge /auth/chunk.js, réécrit en index.html (page blanche).
+  publicPath: "/",
   env: "BUN_PUBLIC_*",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
